@@ -50,15 +50,4 @@ class ProductCategoryController extends Controller
             ->with('success', 'Category deleted successfully.');
     }
 
-    public function getSubcategories($categoryId)
-    {
-        try {
-            $subcategories = ProductSubcategory::where('category_id', $categoryId)->get();
-            return response()->json($subcategories);
-        } catch (\Exception $e) {
-            \Log::error('Error fetching subcategories: ' . $e->getMessage());
-            return response()->json(['error' => 'Failed to fetch subcategories'], 500);
-        }
-    }
-
 }

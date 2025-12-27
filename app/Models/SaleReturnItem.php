@@ -12,7 +12,6 @@ class SaleReturnItem extends Model
     protected $fillable = [
         'sale_return_id',
         'product_id',
-        'variation_id',
         'qty',
         'price',
     ];
@@ -26,10 +25,5 @@ class SaleReturnItem extends Model
     public function product()
     {
         return $this->belongsTo(Product::class);
-    }
-
-    public function variation()
-    {
-        return $this->belongsTo(ProductVariation::class, 'variation_id');
     }
 }

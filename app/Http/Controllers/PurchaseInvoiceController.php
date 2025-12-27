@@ -44,7 +44,6 @@ class PurchaseInvoiceController extends Controller
             'remarks' => 'nullable|string',
             'attachments.*' => 'nullable|file|mimes:jpg,jpeg,png,pdf,zip|max:2048',
             'item_id.*'      => 'required|exists:products,id',
-            'variation_id.*' => 'nullable|exists:product_variations,id',
             'quantity.*'     => 'required|numeric|min:0.01',
             'unit.*'         => 'required|exists:measurement_units,id',
             'price.*'        => 'required|numeric|min:0',

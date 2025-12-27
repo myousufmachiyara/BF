@@ -17,7 +17,6 @@
           <h2 class="card-title">All Products</h2>
           <div>
             <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#bulkUploadModal"><i class="fas fa-upload"></i> Bulk Upload</button>
-            <a href="{{ route('products.barcode.selection') }}" class="btn btn-danger">Print Barcodes</a>
             <a href="{{ route('products.create') }}" class="btn btn-primary"><i class="fas fa-plus"></i> Products</a>
           </div>
         </div>
@@ -50,13 +49,8 @@
                 <td>{{ $product->name }}</td>
                 <td>{{ $product->sku }}</td>
                 <td>
-                  @if($product->category || $product->subcategory)
+                  @if($product->category)
                     {{ $product->category->name ?? '' }}
-                    @if(!empty($product->subcategory))
-                      - {{ $product->subcategory->name }}
-                    @endif
-                  @else
-                    -
                   @endif
                 </td>
                 <td>

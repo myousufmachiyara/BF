@@ -15,14 +15,12 @@ return new class extends Migration
             $table->id();
             $table->unsignedBigInteger('sale_return_id');
             $table->unsignedBigInteger('product_id');
-            $table->unsignedBigInteger('variation_id')->nullable();
             $table->decimal('qty', 15, 2);   // support fractional quantities if needed
             $table->decimal('price', 15, 2); // unit price
             $table->timestamps();
 
             $table->foreign('sale_return_id')->references('id')->on('sale_returns')->onDelete('cascade');
             $table->foreign('product_id')->references('id')->on('products')->onDelete('restrict');
-            $table->foreign('variation_id')->references('id')->on('product_variations')->onDelete('set null');
         });
     }
 

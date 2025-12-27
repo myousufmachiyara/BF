@@ -9,7 +9,6 @@ class PurchaseInvoiceItem extends Model
     protected $fillable = [
         'purchase_invoice_id',
         'item_id',
-        'variation_id',   // 🔹 add this
         'quantity',
         'unit',
         'price',
@@ -30,10 +29,5 @@ class PurchaseInvoiceItem extends Model
     public function measurementUnit()
     {
         return $this->belongsTo(MeasurementUnit::class, 'unit');
-    }
-
-    public function variation()
-    {
-        return $this->belongsTo(ProductVariation::class, 'variation_id');
     }
 }

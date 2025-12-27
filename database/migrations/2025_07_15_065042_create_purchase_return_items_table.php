@@ -15,7 +15,6 @@ return new class extends Migration
             $table->id();
             $table->unsignedBigInteger('purchase_return_id');
             $table->unsignedBigInteger('item_id');
-            $table->unsignedBigInteger('variation_id')->nullable();
             $table->unsignedBigInteger('purchase_invoice_id'); // <- Add this line
             $table->decimal('quantity', 15, 2);
             $table->unsignedBigInteger('unit_id');
@@ -26,7 +25,6 @@ return new class extends Migration
             $table->foreign('purchase_return_id')->references('id')->on('purchase_returns')->onDelete('cascade');
             $table->foreign('item_id')->references('id')->on('products')->onDelete('cascade');
             $table->foreign('unit_id')->references('id')->on('measurement_units')->onDelete('cascade');
-            $table->foreign('variation_id')->references('id')->on('product_variations')->nullOnDelete();
         });
     }
 

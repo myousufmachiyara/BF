@@ -11,38 +11,18 @@ class Product extends Model
 
     protected $fillable = [
         'category_id',
-        'subcategory_id',
         'name',
         'sku',
-        'barcode',
         'description',
-        'manufacturing_cost',
         'opening_stock',
         'selling_price',
-        'consumption',
         'reorder_level',
         'max_stock_level',
         'minimum_order_qty',
         'measurement_unit',
-        'item_type',    // fg, raw, service
+        'item_type',
         'is_active',
     ];
-
-    protected static function booted()
-    {
-        static::creating(function ($product) {
-            if (empty($product->barcode)) {
-                $prefix = match($product->item_type) {
-                    'fg'      => 'FG-',
-                    'raw'     => 'RAW-',
-                    'service' => 'SRV-',
-                    default   => 'PRD-',
-                };
-
-                $product->barcode = generateGlobalBarcode($prefix);
-            }
-        });
-    }
 
 
     /* ----------------- Relationships ----------------- */
@@ -51,17 +31,6 @@ class Product extends Model
     public function category()
     {
         return $this->belongsTo(ProductCategory::class, 'category_id');
-    }
-
-    public function subcategory()
-    {
-        return $this->belongsTo(ProductSubcategory::class, 'subcategory_id');
-    }
-
-    // Has many variations
-    public function variations()
-    {
-        return $this->hasMany(ProductVariation::class);
     }
 
     // Has many images

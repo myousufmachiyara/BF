@@ -41,14 +41,6 @@
               </select>
             </div>
 
-            <div class="col-md-2">
-              <label>Sub Category </label>
-              <select name="subcategory_id" class="form-control">
-                @foreach($subcategories as $subcat)
-                  <option value="{{ $subcat->id }}" {{ $product->subcategory_id == $subcat->id ? 'selected' : '' }}>{{ $subcat->name }}</option>
-                @endforeach
-              </select>
-            </div>
 
             <div class="col-md-2">
               <label>SKU</label>
@@ -76,16 +68,6 @@
             </div>
 
             <div class="col-md-2">
-              <label>Consumption</label>
-              <input type="number" step="any" name="consumption" class="form-control" value="{{ old('consumption', $product->consumption) }}">
-            </div>
-
-            <div class="col-md-2 mt-3">
-              <label>M.Cost</label>
-              <input type="number" step="any" name="manufacturing_cost" class="form-control" value="{{ old('manufacturing_cost', $product->manufacturing_cost) }}">
-            </div>
-
-            <div class="col-md-2 mt-3">
               <label>Selling Price</label>
               <input type="number" step="any" name="selling_price" class="form-control" value="{{ old('selling_price', $product->selling_price) }}">
             </div>
@@ -109,8 +91,7 @@
 
             <div class="col-md-2 mt-3">
               <label>Reorder Level</label>
-              <input type="number" step="any" name="reorder_level" class="form-control"
-                    value="{{ old('reorder_level', $product->reorder_level) }}">
+              <input type="number" step="any" name="reorder_level" class="form-control" value="{{ old('reorder_level', $product->reorder_level) }}">
             </div>
 
             <div class="col-md-2 mt-3">
@@ -120,7 +101,6 @@
                 <option value="0" {{ old('is_active', $product->is_active) == 0 ? 'selected' : '' }}>Inactive</option>
               </select>
             </div>
-
 
             <div class="col-md-4 mt-3">
               <label>Description</label>
@@ -148,59 +128,11 @@
             </div>
           </div>
 
-          <div class="row mt-4">
-            <div class="col-md-12">
-              <h2 class="card-title">Existing Variations</h2>
-              <div id="variation-section">
-                @foreach($product->variations as $i => $variation)
-                  <div class="variation-block border p-2 mb-3 existing-variation">
-                    <input type="hidden" name="variations[{{ $i }}][id]" value="{{ $variation->id }}">
-                    <div class="row">
-                      <div class="col-md-3">
-                        <label>SKU</label>
-                        <input type="text" name="variations[{{ $i }}][sku]" class="form-control sku-field" value="{{ $variation->sku }}">
-                      </div>
-                      <div class="col-md-2">
-                        <label>M.Cost</label>
-                        <input type="number" step="any" name="variations[{{ $i }}][manufacturing_cost]" class="form-control" value="{{ $variation->manufacturing_cost }}">
-                      </div>
-                      <div class="col-md-2">
-                        <label>Stock</label>
-                        <input type="number" step="any" name="variations[{{ $i }}][stock_quantity]" class="form-control" value="{{ $variation->stock_quantity }}">
-                      </div>
-                      <div class="col-md-4">
-                        <label>Attributes</label>
-                        <select name="variations[{{ $i }}][attributes][]" multiple class="form-control select2-js variation-attributes">
-                          @foreach($attributes as $attribute)
-                            @foreach($attribute->values as $value)
-                              <option value="{{ $value->id }}" {{ $variation->attributeValues->pluck('id')->contains($value->id) ? 'selected' : '' }}>
-                                {{ $attribute->name }} - {{ $value->value }}
-                              </option>
-                            @endforeach
-                          @endforeach
-                        </select>
-                      </div>
-                      <div class="col-md-1 d-flex align-items-end">
-                        <button type="button" class="btn btn-sm btn-danger remove-existing-variation" data-id="{{ $variation->id }}">X</button>
-                      </div>
-                    </div>
-                  </div>
-                @endforeach
-              </div>
-
-              <div class="col-md-12 mt-3">
-                <h2 class="card-title">Add New Variations</h2>
-                <div id="new-variation-section"></div>
-                <button type="button" class="btn btn-sm btn-secondary mt-2" id="addNewVariationBtn">Add Variation</button>
-              </div>
-            </div>
-          </div>
-
           <div class="col-12 mt-4">
             <section class="card">
               <header class="card-header d-flex justify-content-between">
                 <h2 class="card-title">Product Parts / Raw Materials</h2>
-                <button type="button" class="btn btn-primary btn-sm" onclick="addPartRow()">
+                <button type="button" class="btn btn-primary py-0" onclick="addPartRow()">
                   <i class="fa fa-plus"></i> Add Part
                 </button>
               </header>
@@ -210,7 +142,6 @@
                   <thead>
                     <tr>
                       <th>Part</th>
-                      <th>Variation</th>
                       <th>Qty</th>
                       <th width="10%">Action</th>
                     </tr>
@@ -230,20 +161,6 @@
                               {{ $p->name }}
                             </option>
                           @endforeach
-                        </select>
-                      </td>
-
-                      <td>
-                        <select name="parts[{{ $i }}][part_variation_id]"
-                                class="form-control select2-js part-variation-select">
-                          <option value="">No variation</option>
-
-                          @if($part->partVariation)
-                            <option value="{{ $part->partVariation->id }}" selected>
-                             {{ $part->partVariation->sku }}
-                            </option>
-                          @endif
-
                         </select>
                       </td>
 
@@ -276,14 +193,7 @@
                           @endforeach
                         </select>
                       </td>
-
-                      <td>
-                        <select name="parts[0][part_variation_id]"
-                                class="form-control select2-js part-variation-select">
-                          <option value="">Select Variation</option>
-                        </select>
-                      </td>
-
+                     
                       <td>
                         <input type="number" step="any"
                               name="parts[0][quantity]"
@@ -316,84 +226,6 @@
   
   $(document).ready(function () {
     $('.select2-js').select2();
-
-    $(document).on('change', '.variation-attributes', function () {
-      const block = $(this).closest('.variation-block');
-      const selectedOptions = $(this).find('option:selected');
-      const attrTexts = [];
-      selectedOptions.each(function () {
-        attrTexts.push($(this).text().split('-')[1]);
-      });
-      const variationName = attrTexts.join('-');
-      const mainSku = $('#sku').val();
-      block.find('.sku-field').val(mainSku + '-' + variationName);
-    });
-
-    let newVariationIndex = 0;
-    $('#addNewVariationBtn').click(function () {
-      newVariationIndex++;
-      const html = `
-        <div class="variation-block border p-2 mb-3">
-          <div class="row">
-            <div class="col-md-3">
-              <label>SKU</label>
-              <input type="text" name="new_variations[${newVariationIndex}][sku]" class="form-control sku-field">
-            </div>
-            <div class="col-md-2">
-              <label>M.Cost</label>
-              <input type="number" step="any" name="new_variations[${newVariationIndex}][manufacturing_cost]" value="0.00" class="form-control">
-            </div>
-            <div class="col-md-2">
-              <label>Stock</label>
-              <input type="number" step="any" name="new_variations[${newVariationIndex}][stock_quantity]" value="0.00" class="form-control">
-            </div>
-            <div class="col-md-4">
-              <label>Attributes</label>
-              <select name="new_variations[${newVariationIndex}][attributes][]" multiple class="form-control select2-js variation-attributes">
-                @foreach($attributes as $attribute)
-                  @foreach($attribute->values as $value)
-                    <option value="{{ $value->id }}">{{ $attribute->name }}-{{ $value->value }}</option>
-                  @endforeach
-                @endforeach
-              </select>
-            </div>
-            <div class="col-md-1 d-flex align-items-end">
-              <button type="button" class="btn btn-sm btn-danger remove-new-variation">X</button>
-            </div>
-          </div>
-        </div>
-      `;    
-      $('#new-variation-section').append(html);
-      $('.select2-js').select2();
-    });
-
-    $(document).on('click', '.remove-new-variation', function () {
-      $(this).closest('.variation-block').remove();
-    });
-
-    $(document).on('click', '.remove-existing-variation', function () {
-      const block = $(this).closest('.variation-block');
-      const variationId = $(this).data('id');
-      if (confirm('Are you sure you want to remove this variation?')) {
-        block.find('input, select, textarea').prop('disabled', true); // disable all fields so they don’t get submitted
-        block.hide();
-        block.append(`<input type="hidden" name="removed_variations[]" value="${variationId}" class="removed-variation-flag">`);
-        const undoHtml = `<div class="undo-variation-alert alert alert-warning mb-3" data-id="${variationId}">
-          Variation removed. <button type="button" class="btn btn-sm btn-link p-0 undo-remove-variation">Undo</button>
-        </div>`;
-        block.after(undoHtml);
-      }
-    });
-
-    $(document).on('click', '.undo-remove-variation', function () {
-      const alertBox = $(this).closest('.undo-variation-alert');
-      const variationId = alertBox.data('id');
-      const block = $('.variation-block').has(`input[name="variation_ids[]"][value="${variationId}"]`);
-      block.find('.removed-variation-flag').remove();
-      block.find('input, select, textarea').prop('disabled', false);
-      block.show();
-      alertBox.remove();
-    });
 
     document.getElementById("imageUpload").addEventListener("change", function(event) {
       const files = event.target.files;
@@ -470,12 +302,6 @@
       </td>
 
       <td>
-        <select name="parts[${partIndex}][part_variation_id]" class="form-control select2-js part-variation-select">
-          <option value="">Select Variation</option>
-        </select>
-      </td>
-
-      <td>
         <input type="number" step="any" name="parts[${partIndex}][quantity]" class="form-control" value="1" required>
       </td>
 
@@ -500,36 +326,5 @@
     }
   }
 
-  // 🔄 Load variations for selected part
-  function onPartChange(select) {
-    const productId = select.value;
-    const row = select.closest('tr');
-    const variationSelect = row.querySelector('.part-variation-select');
-
-    variationSelect.innerHTML = '<option value="">Loading...</option>';
-    variationSelect.disabled = true;
-
-    if (!productId) {
-        variationSelect.innerHTML = '<option value="">Select variation</option>';
-        return;
-    }
-
-    fetch(`/product/${productId}/variations`)
-      .then(res => res.json())
-      .then(data => {
-          variationSelect.innerHTML = '<option value="">No variation</option>';
-
-          if (data.success && data.variation.length > 0) {
-              data.variation.forEach(v => {
-                  variationSelect.innerHTML +=
-                      `<option value="${v.id}">${v.sku}</option>`;
-              });
-              variationSelect.disabled = false;
-          }
-      })
-      .catch(() => {
-        variationSelect.innerHTML = '<option value="">Error loading</option>';
-      });
-  }
 </script>
 @endsection

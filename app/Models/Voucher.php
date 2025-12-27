@@ -38,8 +38,4 @@ class Voucher extends Model
         return $query->where('voucher_type', $type);
     }
 
-    public function production()
-    {
-        return $this->hasOne(Production::class, 'voucher_id');
-    }
 }

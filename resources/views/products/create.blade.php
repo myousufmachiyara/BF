@@ -38,13 +38,6 @@
               </select>
               @error('category_id')<div class="text-danger">{{ $message }}</div>@enderror
             </div>
-            <div class="col-md-2">
-              <label>Sub Category</label>
-              <select name="subcategory_id" id="subcategory_id" class="form-control">
-                <option value="">Select Sub Category</option>
-              </select>
-              @error('subcategory_id')<div class="text-danger">{{ $message }}</div>@enderror
-            </div>
 
             <div class="col-md-2">
               <label>SKU *</label>
@@ -72,19 +65,7 @@
               </select>
             </div>
 
-            <div class="col-md-2 mt-3">
-              <label>Consumption</label>
-              <input type="number" step="any" name="consumption" class="form-control" value="{{ old('consumption', '0') }}">
-              @error('consumption')<div class="text-danger">{{ $message }}</div>@enderror
-            </div>
-
-            <div class="col-md-2 mt-3">
-              <label>M.Cost</label>
-              <input type="number" step="any" name="manufacturing_cost" class="form-control" value="{{ old('manufacturing_cost', '0.00') }}">
-              @error('price')<div class="text-danger">{{ $message }}</div>@enderror
-            </div>
-
-            <div class="col-md-2 mt-3">
+            <div class="col-md-2">
               <label>Selling Price</label>
               <input type="number" step="any" name="selling_price" class="form-control" value="{{ old('selling_price', '0.00') }}">
               @error('selling_price')<div class="text-danger">{{ $message }}</div>@enderror
@@ -135,49 +116,6 @@
             </div>
           </div>
 
-          {{-- Attribute Selection --}}
-          <div class="row mt-4">
-            <div class="col-md-12">
-              <h2 class="card-title">Product Variations</h2>
-              <div class="row">
-                @foreach($attributes as $attribute)
-                  <div class="col-md-6">
-                    <label>{{ $attribute->name }}</label>
-                    <select name="attributes[{{ $attribute->id }}][]" multiple class="form-control select2-js variation-select" data-attribute="{{ $attribute->id }}">
-                      @foreach($attribute->values as $value)
-                        <option value="{{ $value->id }}">{{ $value->value }}</option>
-                      @endforeach
-                    </select>
-                  </div>
-                @endforeach
-              </div>
-            </div>
-          </div>
-
-          {{-- Generate Button and Table --}}
-          <div class="col-md-12 mt-4">
-            <button type="button" class="btn btn-success mb-3" id="generateVariationsBtn">
-              <i class="fa fa-plus"></i> Generate Variations
-            </button>
-
-            <div class="table-responsive">
-              <table class="table table-bordered" id="variationsTable">
-                <thead>
-                  <tr>
-                    <th>Variation</th>
-                    <th>Stock</th>
-                    <th>M.Cost</th>
-                    <th>SKU</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {{-- JS will generate rows here --}}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
           <div class="col-12 mt-4">
             <section class="card">
               <header class="card-header">
@@ -196,7 +134,6 @@
                   <thead>
                     <tr>
                       <th>Part</th>
-                      <th>Variation</th>
                       <th>Qty</th>
                       <th width="10%">Action</th>
                     </tr>
@@ -210,12 +147,6 @@
                           @foreach($allProducts as $product)
                             <option value="{{ $product->id }}">{{ $product->name }}</option>
                           @endforeach
-                        </select>
-                      </td>
-
-                      <td>
-                        <select name="parts[0][part_variation_id]" class="form-control select2-js part-variation-select">
-                          <option value="">Select Variation</option>
                         </select>
                       </td>
 
@@ -251,55 +182,6 @@
   
   $(document).ready(function () {
     $('.select2-js').select2();
-
-    $('#generateVariationsBtn').click(function () {
-      let attributes = {!! $attributes->toJson() !!};
-      let selectedMap = {};
-
-      attributes.forEach(attr => {
-        let selected = $(`select[name="attributes[${attr.id}][]"]`).val();
-        if (selected && selected.length > 0) {
-          selectedMap[attr.name] = selected.map(valId => {
-            let text = $(`select[name="attributes[${attr.id}][]"] option[value="${valId}"]`).text();
-            return { id: valId, text: text };
-          });
-        }
-      });
-
-      let combos = buildCombinations(Object.entries(selectedMap));
-      let tbody = $('#variationsTable tbody');
-      tbody.empty();
-
-      let mainSku = $('#sku').val();
-
-      combos.forEach((combo, index) => {
-        let label = combo.map(c => c.text).join(' - ');
-        let inputs = combo.map((c, i) => `
-          <input type="hidden" name="variations[${index}][attributes][${i}][attribute_value_id]" value="${c.id}">
-        `).join('');
-
-        tbody.append(`
-          <tr>
-            <td>${label}${inputs}</td>
-            <td><input type="number" name="variations[${index}][stock_quantity]" step="any" class="form-control" value="0" required></td>
-            <td><input type="number" name="variations[${index}][manufacturing_cost]" step="any" class="form-control" value="0" required></td>
-            <td><input type="text" name="variations[${index}][sku]" class="form-control" value="${mainSku}-${label}"></td>
-            <td><button type="button" class="btn btn-sm btn-danger remove-variation">X</button></td>
-          </tr>
-        `);
-      });
-    });
-
-    $(document).on('click', '.remove-variation', function () {
-      $(this).closest('tr').remove();
-    });
-
-    function buildCombinations(arr, index = 0) {
-      if (index === arr.length) return [[]];
-      let [key, values] = arr[index];
-      let rest = buildCombinations(arr, index + 1);
-      return values.flatMap(v => rest.map(r => [v, ...r]));
-    }
 
     document.getElementById("imageUpload").addEventListener("change", function(event) {
       const files = event.target.files;
@@ -355,33 +237,6 @@
       });
     });
 
-    $('select[name="category_id"]').on('change', function () {
-      let categoryId = $(this).val();
-      let subCategorySelect = $('#subcategory_id');
-
-      subCategorySelect.empty().append('<option value="">Loading...</option>');
-
-      if (categoryId) {
-        $.ajax({
-          url: "{{ route('products.getSubcategories', ':id') }}".replace(':id', categoryId),
-          type: "GET",
-          success: function (data) {
-            subCategorySelect.empty();
-            subCategorySelect.append('<option value="">Select Sub Category</option>');
-
-            if (data.length > 0) {
-              $.each(data, function (key, subcat) {
-                subCategorySelect.append(
-                  `<option value="${subcat.id}">${subcat.name}</option>`
-                );
-              });
-            }
-          }
-        });
-      } else {
-        subCategorySelect.empty().append('<option value="">Select Sub Category</option>');
-      }
-    });
   });
 
   // ➕ Add new part row
@@ -398,12 +253,6 @@
           @foreach($allProducts as $product)
             <option value="{{ $product->id }}">{{ $product->name }}</option>
           @endforeach
-        </select>
-      </td>
-
-      <td>
-        <select name="parts[${partIndex}][part_variation_id]" class="form-control select2-js part-variation-select">
-          <option value="">Select Variation</option>
         </select>
       </td>
 
@@ -430,38 +279,6 @@
     if (rows.length > 1) {
       btn.closest('tr').remove();
     }
-  }
-
-  // 🔄 Load variations for selected part
-  function onPartChange(select) {
-    const productId = select.value;
-    const row = select.closest('tr');
-    const variationSelect = row.querySelector('.part-variation-select');
-
-    variationSelect.innerHTML = '<option value="">Loading...</option>';
-    variationSelect.disabled = true;
-
-    if (!productId) {
-        variationSelect.innerHTML = '<option value="">Select variation</option>';
-        return;
-    }
-
-    fetch(`/product/${productId}/variations`)
-      .then(res => res.json())
-      .then(data => {
-          variationSelect.innerHTML = '<option value="">No variation</option>';
-
-          if (data.success && data.variation.length > 0) {
-              data.variation.forEach(v => {
-                  variationSelect.innerHTML +=
-                      `<option value="${v.id}">${v.sku}</option>`;
-              });
-              variationSelect.disabled = false;
-          }
-      })
-      .catch(() => {
-        variationSelect.innerHTML = '<option value="">Error loading</option>';
-      });
   }
 
 </script>

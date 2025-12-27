@@ -15,7 +15,6 @@ return new class extends Migration
             $table->id();
             $table->unsignedBigInteger('sale_invoice_id');
             $table->unsignedBigInteger('product_id');
-            $table->unsignedBigInteger('variation_id')->nullable(); // size/color variation
             $table->decimal('sale_price', 10, 2); // actual selling price
             $table->decimal('discount', 10, 2)->default(0); // per item discount
             $table->integer('quantity');
@@ -23,7 +22,6 @@ return new class extends Migration
 
             $table->foreign('sale_invoice_id')->references('id')->on('sale_invoices');
             $table->foreign('product_id')->references('id')->on('products');
-            $table->foreign('variation_id')->references('id')->on('product_variations');
         });
     }
 

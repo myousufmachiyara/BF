@@ -9,7 +9,6 @@ class SaleInvoiceItem extends Model
     protected $fillable = [
         'sale_invoice_id',
         'product_id',
-        'variation_id',
         'sale_price',
         'discount',
         'quantity',
@@ -23,16 +22,6 @@ class SaleInvoiceItem extends Model
     public function product()
     {
         return $this->belongsTo(Product::class);
-    }
-
-    public function variation()
-    {
-        return $this->belongsTo(ProductVariation::class, 'variation_id');
-    }
-
-    public function production()
-    {
-        return $this->belongsTo(Production::class);
     }
 
     public function measurementUnit()

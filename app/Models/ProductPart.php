@@ -14,7 +14,6 @@ class ProductPart extends Model
     protected $fillable = [
         'product_id',
         'part_id',
-        'part_variation_id',
         'quantity',
     ];
 
@@ -36,13 +35,5 @@ class ProductPart extends Model
     public function part()
     {
         return $this->belongsTo(Product::class, 'part_id');
-    }
-
-    /**
-     * Part Variation (optional)
-     */
-    public function partVariation()
-    {
-        return $this->belongsTo(ProductVariation::class, 'part_variation_id');
     }
 }

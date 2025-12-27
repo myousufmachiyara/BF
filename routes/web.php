@@ -8,30 +8,20 @@ use App\Http\Controllers\{
     SubHeadOfAccController,
     COAController,
     SaleInvoiceController,
-    ProductionController,
     PurchaseInvoiceController,
     PurchaseReturnController,
     ProductController,
     UserController,
     RoleController,
-    AttributeController,
     ProductCategoryController,
-    ProductionReceivingController,
     VoucherController,
     InventoryReportController,
     PurchaseReportController,
-    ProductionReportController,
     SalesReportController,
     AccountsReportController,
     SummaryReportController,
-    POSController,
     SaleReturnController,
     PermissionController,
-    LocationController,
-    StockTransferController,
-    ProductionReturnController,
-    ProductSubcategoryController,
-    MarketRateController,
 };
 
 Auth::routes();
@@ -39,28 +29,18 @@ Auth::routes();
 Route::middleware(['auth'])->group(function () {
     // Dashboard
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
-    Route::resource('market_rates', MarketRateController::class);
 
     Route::put('/users/{id}/change-password', [UserController::class, 'changePassword'])->name('users.changePassword');
     Route::put('/users/{id}/toggle-active', [UserController::class, 'toggleActive'])->name('users.toggleActive');
 
     // Product Helpers
     Route::get('/products/details', [ProductController::class, 'details'])->name('products.receiving');
-    Route::get('/products/barcode-selection', [ProductController::class, 'barcodeSelection'])->name('products.barcode.selection');
-    Route::post('/products/generate-multiple-barcodes', [ProductController::class, 'generateMultipleBarcodes'])->name('products.generateBarcodes');
-    Route::get('/get-product-by-code/{barcode}', [ProductController::class, 'getByBarcode'])->name('product.byBarcode');
-    Route::get('/product/{product}/variations', [ProductController::class, 'getVariations'])->name('product.variations');
-    Route::get('/product/{product}/productions', [ProductionController::class, 'getProductProductions'])->name('product.productions');
     Route::post('/products/bulk-upload', [ProductController::class, 'bulkUploadStore'])->name('products.bulk-upload.store');
     Route::get('/products/bulk-upload/template', [ProductController::class, 'bulkUploadTemplate'])->name('products.bulk-upload.template');
-    Route::get('/get-subcategories/{category_id}', [ProductCategoryController::class, 'getSubcategories'])->name('products.getSubcategories');
 
     //Purchase Helper
     Route::get('/product/{product}/invoices', [PurchaseInvoiceController::class, 'getProductInvoices']);
 
-    // Production Summary
-    Route::get('/production-summary/{id}', [ProductionController::class, 'summary'])->name('production.summary');
-    Route::get('/production-gatepass/{id}', [ProductionController::class, 'printGatepass'])->name('production.gatepass');
     // Common Modules
     $modules = [
         // User Management
@@ -75,13 +55,7 @@ Route::middleware(['auth'])->group(function () {
         // Products
         'products' => ['controller' => ProductController::class, 'permission' => 'products'],
         'product_categories' => ['controller' => ProductCategoryController::class, 'permission' => 'product_categories'],
-        'product_subcategories' => ['controller' => ProductSubcategoryController::class, 'permission' => 'product_subcategories'],
-        'attributes' => ['controller' => AttributeController::class, 'permission' => 'attributes'],
-
-        // Stock Management
-        'locations' => ['controller' => LocationController::class, 'permission' => 'locations'],
-        'stock_transfer' => ['controller' => StockTransferController::class, 'permission' => 'stock_transfer'],
-
+    
         // Purchases
         'purchase_invoices' => ['controller' => PurchaseInvoiceController::class, 'permission' => 'purchase_invoices'],
         'purchase_return' => ['controller' => PurchaseReturnController::class, 'permission' => 'purchase_return'],
@@ -91,16 +65,8 @@ Route::middleware(['auth'])->group(function () {
         'sale_return' => ['controller' => SaleReturnController::class, 'permission' => 'sale_return'],
 
         // Vouchers
-        'payment_vouchers' => ['controller' => PaymentVoucherController::class, 'permission' => 'payment_vouchers'],
         'vouchers' => ['controller' => VoucherController::class, 'permission' => 'vouchers'],
 
-        // Production
-        'production' => ['controller' => ProductionController::class, 'permission' => 'production'],
-        'production_receiving' => ['controller' => ProductionReceivingController::class, 'permission' => 'production_receiving'],
-        'production_return' => ['controller' => ProductionReturnController::class, 'permission' => 'production_return'],
-
-        // POS (optional)
-        'pos_system' => ['controller' => POSController::class, 'permission' => 'pos_system'],
     ];
 
     foreach ($modules as $uri => $config) {
@@ -144,7 +110,6 @@ Route::middleware(['auth'])->group(function () {
     Route::prefix('reports')->name('reports.')->group(function () {
         Route::get('inventory', [InventoryReportController::class, 'inventoryReports'])->name('inventory');
         Route::get('purchase', [PurchaseReportController::class, 'purchaseReports'])->name('purchase');
-        Route::get('production', [ProductionReportController::class, 'productionReports'])->name('production');
         Route::get('sale', [SalesReportController::class, 'saleReports'])->name('sale');
         Route::get('accounts', [AccountsReportController::class, 'accounts'])->name('accounts');
     });

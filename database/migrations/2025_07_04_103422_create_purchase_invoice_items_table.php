@@ -14,9 +14,7 @@ return new class extends Migration
         Schema::create('purchase_invoice_items', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('purchase_invoice_id');
-            $table->unsignedBigInteger('variation_id')->nullable();
             $table->unsignedBigInteger('item_id');
-            $table->string('item_name')->nullable();
             $table->decimal('quantity', 15, 2);
             $table->unsignedBigInteger('unit');
 
@@ -27,7 +25,6 @@ return new class extends Migration
             $table->foreign('unit')->references('id')->on('measurement_units')->onDelete('cascade');
             $table->foreign('purchase_invoice_id')->references('id')->on('purchase_invoices')->onDelete('cascade');
             $table->foreign('item_id')->references('id')->on('products')->onDelete('cascade');
-            $table->foreign('variation_id')->references('id')->on('product_variations')->nullOnDelete();
         });
     }
 

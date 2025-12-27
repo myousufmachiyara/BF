@@ -79,30 +79,7 @@
 		</div>
 	</div>
 	<div class="row">
-		<div class="col-12 col-md-6 mb-3 d-flex">
-			<section class="card flex-fill">
-				<header class="card-header">
-					<div class="card-actions">
-						<a href="#" class="card-action card-action-toggle" data-card-toggle></a>
-					</div>
-					<h2 class="card-title">Pending Production</h2>
-				</header>
-				<div class="card-body scrollable-div">
-					<table class="table table-responsive-md table-striped mb-0">
-						<thead class="sticky-tbl-header">
-							<tr>
-								<th>Order#</th>
-								<th>Date</th>
-								<th>Vendor</th>
-								<th>Status</th>
-							</tr>
-						</thead>
-						<tbody id="PendingProduction" class="table-body-scroll">
-						</tbody>
-					</table>
-				</div>
-			</section>
-		</div>
+		
 	</div>
 	<!-- <div class="tabs mt-3">
 		<ul class="nav nav-tabs">
