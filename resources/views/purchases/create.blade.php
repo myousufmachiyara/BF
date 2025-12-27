@@ -63,7 +63,6 @@
                 <tr>
                   <th>Item Code</th>
                   <th>Item Name</th>
-                  <th>Variation</th>
                   <th>Quantity</th>
                   <th>Unit</th>
                   <th>Price</th>
@@ -86,13 +85,7 @@
                         </option>
                       @endforeach
                     </select>
-                  </td>
-
-                  <td>
-                    <select name="items[0][variation_id]" class="form-control select2-js variation-select">
-                      <option value="">Select Variation</option>
-                    </select>
-                  </td>                  
+                  </td>                
 
                   <td><input type="number" name="items[0][quantity]" id="pur_qty1" class="form-control quantity" value="0" step="any" onchange="rowTotal(1)"></td>
 
