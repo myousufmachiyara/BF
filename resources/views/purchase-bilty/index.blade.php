@@ -27,9 +27,8 @@
                 <th>#</th>
                 <th>Invoice Date</th>
                 <th>Vendor</th>
-                <th>Bill No</th>
                 <th>Ref No</th>
-                <th>Attachments</th>
+                <th>Remarks</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -39,21 +38,12 @@
                 <td>{{ $index + 1 }}</td>
                 <td>{{ \Carbon\Carbon::parse($invoice->invoice_date)->format('d-M-Y') }}</td>
                 <td>{{ $invoice->vendor->name ?? 'N/A' }}</td>
-                <td>{{ $invoice->bill_no }}</td>
                 <td>{{ $invoice->ref_no }}</td>
+                <td>{{ $invoice->remarks }}</td>
                 <td>
-                  @if($invoice->attachments && count($invoice->attachments))
-                    @foreach ($invoice->attachments as $file)
-                      <a href="{{ asset('storage/' . $file->attachment_path) }}" target="_blank">View</a><br>
-                    @endforeach
-                  @else
-                    N/A
-                  @endif
-                </td>
-                <td>
-                  <a href="{{ route('purchase_invoices.edit', $invoice->id) }}" class="text-primary"><i class="fas fa-edit"></i></a>
-                  <a href="{{ route('purchase_invoices.print', $invoice->id) }}" target="_blank" class="text-success"><i class="fas fa-print"></i></a>
-                  <form action="{{ route('purchase_invoices.destroy', $invoice->id) }}" method="POST" style="display:inline;">
+                  <a href="{{ route('purchase_bilty.edit', $invoice->id) }}" class="text-primary"><i class="fas fa-edit"></i></a>
+                  <a href="{{ route('purchase_bilty.print', $invoice->id) }}" target="_blank" class="text-success"><i class="fas fa-print"></i></a>
+                  <form action="{{ route('purchase_bilty.destroy', $invoice->id) }}" method="POST" style="display:inline;">
                     @csrf
                     @method('DELETE')
                     <button class="btn btn-link p-0 m-0 text-danger" onclick="return confirm('Are you sure?')"><i class="fa fa-trash-alt"></i></button>

@@ -41,7 +41,6 @@
               </select>
             </div>
 
-
             <div class="col-md-2">
               <label>SKU</label>
               <input type="text" name="sku" id="sku" class="form-control" value="{{ old('sku', $product->sku) }}">
@@ -62,6 +61,12 @@
             <div class="col-md-2">
               <label>Selling Price</label>
               <input type="number" step="any" name="selling_price" class="form-control" value="{{ old('selling_price', $product->selling_price) }}">
+            </div>
+
+            <div class="col-md-2">
+              <label>Bilty Charges</label>
+              <input type="number" step="any" name="bilty_charges" class="form-control" value="{{ old('bilty_charges', $product->bilty_charges) }}">
+              @error('bilty_charges')<div class="text-danger">{{ $message }}</div>@enderror
             </div>
 
             <div class="col-md-2 mt-3">

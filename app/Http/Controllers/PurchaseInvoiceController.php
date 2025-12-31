@@ -96,7 +96,6 @@ class PurchaseInvoiceController extends Controller
                 ]);
             }
 
-
             if ($request->hasFile('attachments')) {
                 foreach ($request->file('attachments') as $file) {
                     $path = $file->store('purchase_invoices', 'public');

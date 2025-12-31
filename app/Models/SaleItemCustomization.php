@@ -1,0 +1,41 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class SaleItemCustomization extends Model
+{
+    use HasFactory;
+
+    protected $table = 'sale_item_customization';
+
+    protected $fillable = [
+        'sale_invoice_id',
+        'sale_invoice_items_id',
+        'item_id',
+    ];
+
+    /* ===============================
+     | Relationships
+     ===============================*/
+
+    // Sale Invoice
+    public function saleInvoice()
+    {
+        return $this->belongsTo(SaleInvoice::class, 'sale_invoice_id');
+    }
+
+    // Sale Invoice Item
+    public function saleInvoiceItem()
+    {
+        return $this->belongsTo(SaleInvoiceItem::class, 'sale_invoice_items_id');
+    }
+
+    // Customized Product / Item
+    public function item()
+    {
+        return $this->belongsTo(Product::class, 'item_id');
+    }
+}

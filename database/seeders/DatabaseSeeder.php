@@ -159,6 +159,8 @@ class DatabaseSeeder extends Seeder
             ['id' => 7, 'name' => 'Office Table',   'code' => 'office-table', 'created_at' => now(), 'updated_at' => now()],
             ['id' => 8, 'name' => 'Dining Table',   'code' => 'dining-table', 'created_at' => now(), 'updated_at' => now()],
             ['id' => 9, 'name' => 'Dining Chair',   'code' => 'dining-chair', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 10, 'name' => 'Gaming Chair',   'code' => 'gaming-chair', 'created_at' => now(), 'updated_at' => now()],
+
         ]);
     }
 }

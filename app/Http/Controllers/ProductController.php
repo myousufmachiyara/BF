@@ -62,7 +62,7 @@ class ProductController extends Controller
         try {
             // ✅ Create Product
             $productData = $request->only([
-                'name', 'category_id','sku', 'description','measurement_unit','opening_stock', 'selling_price',
+                'name', 'category_id','sku', 'description','measurement_unit','opening_stock', 'selling_price', 'bilty_charges',
                 'reorder_level', 'max_stock_level', 'minimum_order_qty', 'is_active'
             ]);
 
@@ -172,7 +172,7 @@ class ProductController extends Controller
 
             // ✅ Update product
             $product->update($request->only([
-                'name', 'category_id', 'sku', 'measurement_unit', 'opening_stock', 'description', 
+                'name', 'category_id', 'sku', 'measurement_unit', 'opening_stock', 'description', 'bilty_charges', 
                 'selling_price', 'reorder_level', 'max_stock_level', 'minimum_order_qty', 'is_active'
             ]));
 

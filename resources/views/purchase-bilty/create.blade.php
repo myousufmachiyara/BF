@@ -7,6 +7,15 @@
   <div class="col">
     <form action="{{ route('purchase_bilty.store') }}" method="POST" enctype="multipart/form-data">
       @csrf
+      @if ($errors->any())
+        <div class="alert alert-danger">
+          <ul class="mb-0">
+            @foreach ($errors->all() as $error)
+              <li>{{ $error }}</li>
+            @endforeach
+          </ul>
+        </div>
+      @endif
       <section class="card">
         <header class="card-header d-flex justify-content-between align-items-center">
           <h2 class="card-title">New Purchase Bilty</h2>
@@ -18,7 +27,7 @@
 
             <div class="col-md-2 mb-3">
               <label>Date</label>
-              <input type="date" name="invoice_date" class="form-control" value="{{ date('Y-m-d') }}" required>
+              <input type="date" name="bilty_date" class="form-control" value="{{ date('Y-m-d') }}" required>
             </div>
 
             <div class="col-md-2 mb-3">
@@ -38,7 +47,7 @@
 
             <div class="col-md-2 mb-3">
               <label>Purchase #</label>
-               <select name="purchase_id" class="form-control select2-js">
+               <select name="bilty_purchase_id" class="form-control select2-js">
                 <option value="">Select Purchase #</option>
                 @foreach ($purchaseInvoices as $invoice)
                   <option value="{{ $invoice->id }}">
@@ -60,32 +69,30 @@
           </div>
 
           <div class="table-responsive mb-3">
-            <table class="table table-bordered" id="purchaseTable">
+            <table class="table table-bordered">
               <thead>
                 <tr>
                   <th>Item</th>
                   <th>Quantity</th>
                   <th>Unit</th>
-                  <th>Amount</th>
+                  <th>Est. Amount</th>
                   <th>Action</th>
                 </tr>
               </thead>
-              <tbody id="Purchase1Table">
+              <tbody id="BiltyItemTable">
                 <tr>
-
                   <td>
                     <select name="items[0][item_id]" id="item_name1" class="form-control select2-js product-select" onchange="onItemNameChange(this)">
                       <option value="">Select Item</option>
                       @foreach ($products as $product)
-                        <option value="{{ $product->id }}" 
-                                data-unit-id="{{ $product->measurement_unit }}">
+                        <option value="{{ $product->id }}" data-unit-id="{{ $product->measurement_unit }}" data-bilty-charges="{{ $product->bilty_charges }}">
                           {{ $product->name }}
                         </option>
                       @endforeach
                     </select>
                   </td>                
 
-                  <td><input type="number" name="items[0][quantity]" id="pur_qty1" class="form-control quantity" value="0" step="any" onchange="rowTotal(1)"></td>
+                  <td><input type="number" name="items[0][quantity]" id="bilty_qty1" class="form-control quantity" value="0" step="any" onchange="rowTotal(1)"></td>
 
                   <td>
                     <select name="items[0][unit]" id="unit1" class="form-control" required>
@@ -96,7 +103,7 @@
                     </select>
                   </td>
 
-                  <td><input type="number" name="items[0][price]" id="pur_price1" class="form-control" value="0" step="any" onchange="rowTotal(1)"></td>
+                  <td><input type="number" name="items[0][price]" id="bilty_price1" class="form-control" value="0" step="any" onchange="rowTotal(1)"></td>
                   <td><input type="number" id="amount1" class="form-control" value="0" step="any" disabled></td>
                   <td>
                     <button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)"><i class="fas fa-times"></i></button>
@@ -109,14 +116,19 @@
 
           <div class="row mb-3">
             <div class="col-md-2">
-              <label>Total Amount</label>
-              <input type="text" id="totalAmount" class="form-control" disabled>
+              <label>Estimated Amount</label>
+              <input type="number" id="totalAmount" class="form-control" disabled>
               <input type="hidden" name="total_amount" id="total_amount_show">
             </div>
             <div class="col-md-2">
               <label>Total Quantity</label>
-              <input type="text" id="total_quantity" class="form-control" disabled>
+              <input type="number" id="total_quantity" class="form-control" disabled>
               <input type="hidden" name="total_quantity" id="total_quantity_show">
+            </div>
+
+            <div class="col-md-2">
+              <label>Bilty Amount</label>
+              <input type="number" name="bilty_amount" id="payable_amount" class="form-control" required>
             </div>
           </div>
 
@@ -146,23 +158,35 @@
 
   // 🔹 Keep all your existing functions exactly as they are
   function onItemNameChange(selectElement) {
-    const row = selectElement.closest('tr');
-    const selectedOption = selectElement.options[selectElement.selectedIndex];
+      const row = selectElement.closest('tr');
+      const selectedOption = selectElement.options[selectElement.selectedIndex];
 
-    const itemId = selectedOption.value;
-    const unitId = selectedOption.getAttribute('data-unit-id');
+      const itemId = selectedOption.value;
+      const unitId = selectedOption.getAttribute('data-unit-id');
+      const biltyCharges = selectedOption.getAttribute('data-bilty-charges') || 0;
 
-    const idMatch = selectElement.id.match(/\d+$/);
-    if (!idMatch) return;
+      // Extract the numeric index from the select's id
+      const idMatch = selectElement.id.match(/\d+$/);
+      if (!idMatch) return;
 
-    const index = idMatch[0];
+      const index = idMatch[0];
 
-    const unitSelector = $(`#unit${index}`);
-    unitSelector.val(String(unitId)).trigger('change.select2');
+      // Set the unit select value
+      const unitSelector = $(`#unit${index}`);
+      unitSelector.val(String(unitId)).trigger('change.select2');
+
+      // Set the bilty price input value
+      const biltyPriceInput = $(`#bilty_price${index}`);
+      biltyPriceInput.val(parseFloat(biltyCharges).toFixed(2));
+
+      // Optional: recalculate row total if you have such function
+      if (typeof rowTotal === "function") {
+          rowTotal(index);
+      }
   }
 
   function removeRow(button) {
-    let rows = $('#Purchase1Table tr').length;
+    let rows = $('#BiltyItemTable tr').length;
     if (rows > 1) {
       $(button).closest('tr').remove();
       $('#itemCount').val(--rows);
@@ -176,7 +200,7 @@
   }
 
   function addNewRow() {
-    let table = $('#Purchase1Table');
+    let table = $('#BiltyItemTable');
     let rowIndex = index - 1;
 
     let newRow = `
@@ -185,13 +209,13 @@
           <select name="items[${rowIndex}][item_id]" id="item_name${index}" class="form-control select2-js product-select" onchange="onItemNameChange(this)">
             <option value="">Select Item</option>
             ${products.map(product => 
-              `<option value="${product.id}" data-unit-id="${product.measurement_unit}">
+              `<option value="${product.id}" data-unit-id="${product.measurement_unit}" data-bilty-charges="${product.bilty_charges}">
                 ${product.name}
               </option>`).join('')}
           </select>
         </td>
 
-        <td><input type="number" name="items[${rowIndex}][quantity]" id="pur_qty${index}" class="form-control quantity" value="0" step="any" onchange="rowTotal(${index})"></td>
+        <td><input type="number" name="items[${rowIndex}][quantity]" id="bilty_qty${index}" class="form-control quantity" value="0" step="any" onchange="rowTotal(${index})"></td>
 
         <td>
           <select name="items[${rowIndex}][unit]" id="unit${index}" class="form-control" required>
@@ -202,7 +226,7 @@
           </select>
         </td>
 
-        <td><input type="number" name="items[${rowIndex}][price]" id="pur_price${index}" class="form-control" value="0" step="any" onchange="rowTotal(${index})"></td>
+        <td><input type="number" name="items[${rowIndex}][price]" id="bilty_price${index}" class="form-control" value="0" step="any" onchange="rowTotal(${index})"></td>
         <td><input type="number" id="amount${index}" class="form-control" value="0" step="any" disabled></td>
         <td>
           <button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)"><i class="fas fa-times"></i></button>
@@ -217,17 +241,17 @@
   }
 
   function rowTotal(row) {
-    let quantity = parseFloat($('#pur_qty' + row).val()) || 0;
-    let price = parseFloat($('#pur_price' + row).val()) || 0;
+    let quantity = parseFloat($('#bilty_qty' + row).val()) || 0;
+    let price = parseFloat($('#bilty_price' + row).val()) || 0;
     $('#amount' + row).val((quantity * price).toFixed(2));
     tableTotal();
   }
 
   function tableTotal() {
     let total = 0, qty = 0;
-    $('#Purchase1Table tr').each(function () {
-      total += parseFloat($(this).find('input[id^="amount"]').val()) || 0;
-      qty += parseFloat($(this).find('input[name="quantity[]"]').val()) || 0;
+    $('#BiltyItemTable tr').each(function () {
+        total += parseFloat($(this).find('input[id^="amount"]').val()) || 0;
+        qty += parseFloat($(this).find('input.quantity').val()) || 0; // <-- use class selector
     });
     $('#totalAmount').val(total.toFixed(2));
     $('#total_amount_show').val(total.toFixed(2));
@@ -236,12 +260,18 @@
     netTotal();
   }
 
+  // Recalculate Net Amount based on Bilty Amount field
   function netTotal() {
-    let total = parseFloat($('#totalAmount').val()) || 0;
-    let net = (total).toFixed(2);
-    $('#netTotal').text(formatNumberWithCommas(net));
-    $('#net_amount').val(net);
+      let payable = parseFloat($('#payable_amount').val()) || 0; // use bilty amount
+      $('#netTotal').text(formatNumberWithCommas(payable.toFixed(2)));
+      $('#net_amount').val(payable.toFixed(2));
   }
+
+  // Trigger recalculation when Bilty Amount changes
+  $('#payable_amount').on('input', function() {
+      netTotal();
+  });
+
 
   function formatNumberWithCommas(x) {
     return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");

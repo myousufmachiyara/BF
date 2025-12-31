@@ -6,7 +6,6 @@ use App\Models\SaleInvoice;
 use App\Models\SaleInvoiceItem;
 use App\Models\ChartOfAccounts;
 use App\Models\Product;
-use App\Models\Production;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -18,7 +17,6 @@ class SaleInvoiceController extends Controller
     {
         return view('sales.create', [
             'products' => Product::get(),
-            'productions' => Production::latest()->get(),
             'accounts' => ChartOfAccounts::where('account_type', 'customer')->get(), // or your logic
         ]);
     }
@@ -116,7 +114,7 @@ class SaleInvoiceController extends Controller
 
     public function index()
     {
-        $invoices = SaleInvoice::with('items.product', 'items.variation', 'items.production', 'account')
+        $invoices = SaleInvoice::with('items.product', 'items.variation', 'account')
             ->latest()->get();
 
         return view('sales.index', compact('invoices'));
@@ -191,7 +189,7 @@ class SaleInvoiceController extends Controller
 
     public function show($id)
     {
-        $invoice = SaleInvoice::with('items.product', 'items.variation', 'items.production', 'account')
+        $invoice = SaleInvoice::with('items.product', 'items.variation', 'account')
             ->findOrFail($id);
         return response()->json($invoice);
     }
