@@ -53,6 +53,7 @@ class DatabaseSeeder extends Seeder
             // Purchases
             'purchase_invoices',
             'purchase_return',
+            'purchase_bilty',
 
             // Sales
             'sale_invoices',
@@ -139,20 +140,25 @@ class DatabaseSeeder extends Seeder
             ['id'=>17,'shoa_id'=>7,'account_code'=>'501003','name'=>"Retained Earnings", 'receivables'=>0,'payables'=>0,'opening_date'=>'2025-01-01','remarks'=>"Retained Earnings",'address'=>"",'phone_no'=>"",'created_by'=>1,'updated_by'=>1,'created_at'=>$now,'updated_at'=>$now],
         ]);
 
-
         // 📏 Measurement Units
         MeasurementUnit::insert([
             ['id' => 1, 'name' => 'Pieces', 'shortcode' => 'pcs'],
             ['id' => 2, 'name' => 'Carton', 'shortcode' => 'ct'],
-
+            ['id' => 3, 'name' => 'Set', 'shortcode' => 'set'],
+            ['id' => 4, 'name' => 'Pair', 'shortcode' => 'pair'],
         ]);
 
         // 📦 Product Categories
         ProductCategory::insert([
-            ['id' => 1, 'name' => 'Chair',   'code' => 'chair', 'created_at' => now(), 'updated_at' => now()],
-            
+            ['id' => 1, 'name' => 'Complete Chair',   'code' => 'complete-chair', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 2, 'name' => 'Visitor Chair',   'code' => 'visitor-chair', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 3, 'name' => 'Kit',   'code' => 'kit', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 4, 'name' => 'Part',   'code' => 'part', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 5, 'name' => 'Stool',   'code' => 'stool', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 6, 'name' => 'Cafe Chair',   'code' => 'cafe-chair', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 7, 'name' => 'Office Table',   'code' => 'office-table', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 8, 'name' => 'Dining Table',   'code' => 'dining-table', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 9, 'name' => 'Dining Chair',   'code' => 'dining-chair', 'created_at' => now(), 'updated_at' => now()],
         ]);
-
-        
     }
 }

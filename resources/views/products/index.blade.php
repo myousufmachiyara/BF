@@ -16,7 +16,6 @@
         <div style="display: flex;justify-content: space-between;">
           <h2 class="card-title">All Products</h2>
           <div>
-            <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#bulkUploadModal"><i class="fas fa-upload"></i> Bulk Upload</button>
             <a href="{{ route('products.create') }}" class="btn btn-primary"><i class="fas fa-plus"></i> Products</a>
           </div>
         </div>
@@ -65,36 +64,6 @@
               @endforeach
             </tbody>
           </table>
-        </div>
-      </div>
-
-      <div class="modal fade" id="bulkUploadModal" tabindex="-1" aria-labelledby="bulkUploadModalLabel" aria-hidden="true">
-        <div class="modal-dialog">
-          <form action="{{ route('products.bulk-upload.store') }}" method="POST" enctype="multipart/form-data" class="modal-content">
-            @csrf
-            <div class="modal-header">
-              <h5 class="modal-title" id="bulkUploadModalLabel">Bulk Upload Products</h5>
-              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-              <div class="mb-3">
-                <label for="file" class="form-label">Choose File</label>
-                <input type="file" name="file" id="file" class="form-control" accept=".csv,.xlsx" required>
-                <small class="text-danger">Allowed formats: CSV, XLSX</small>
-              </div>
-              <div class="mt-2">
-                <a href="{{ route('products.bulk-upload.template') }}" class="btn btn-outline-primary btn-sm">
-                  <i class="fas fa-download"></i> Download Template
-                </a>
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-              <button type="submit" class="btn btn-success">
-                <i class="fas fa-upload"></i> Upload
-              </button>
-            </div>
-          </form>
         </div>
       </div>
 

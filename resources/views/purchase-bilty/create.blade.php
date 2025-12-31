@@ -1,15 +1,15 @@
 @extends('layouts.app')
 
-@section('title', 'Purchase | New Invoice')
+@section('title', 'Purchase | New Bilty')
 
 @section('content')
 <div class="row">
   <div class="col">
-    <form action="{{ route('purchase_invoices.store') }}" method="POST" enctype="multipart/form-data">
+    <form action="{{ route('purchase_bilty.store') }}" method="POST" enctype="multipart/form-data">
       @csrf
       <section class="card">
         <header class="card-header d-flex justify-content-between align-items-center">
-          <h2 class="card-title">New Purchase Invoice</h2>
+          <h2 class="card-title">New Purchase Bilty</h2>
         </header>
 
         <div class="card-body">
@@ -17,7 +17,7 @@
             <input type="hidden" id="itemCount" name="items" value="1">
 
             <div class="col-md-2 mb-3">
-              <label>Invoice Date</label>
+              <label>Date</label>
               <input type="date" name="invoice_date" class="form-control" value="{{ date('Y-m-d') }}" required>
             </div>
 
@@ -32,13 +32,20 @@
             </div>
 
             <div class="col-md-2 mb-3">
-              <label>Bill #</label>
-              <input type="text" name="bill_no" class="form-control">
+              <label>Ref.</label>
+              <input type="text" name="ref_no" class="form-control">
             </div>
 
             <div class="col-md-2 mb-3">
-              <label>Ref.</label>
-              <input type="text" name="ref_no" class="form-control">
+              <label>Purchase #</label>
+               <select name="purchase_id" class="form-control select2-js">
+                <option value="">Select Purchase #</option>
+                @foreach ($purchaseInvoices as $invoice)
+                  <option value="{{ $invoice->id }}">
+                    {{ $invoice->invoice_no }}
+                  </option>
+                @endforeach
+              </select>
             </div>
 
             <div class="col-md-3 mb-3">
@@ -56,18 +63,15 @@
             <table class="table table-bordered" id="purchaseTable">
               <thead>
                 <tr>
-                  <th>Item Code</th>
-                  <th>Item Name</th>
+                  <th>Item</th>
                   <th>Quantity</th>
                   <th>Unit</th>
-                  <th>Price</th>
                   <th>Amount</th>
                   <th>Action</th>
                 </tr>
               </thead>
               <tbody id="Purchase1Table">
                 <tr>
-                  <td><input type="text" name="items[0][item_code]" id="item_cod1" class="form-control product-code"></td>
 
                   <td>
                     <select name="items[0][item_id]" id="item_name1" class="form-control select2-js product-select" onchange="onItemNameChange(this)">
@@ -177,8 +181,6 @@
 
     let newRow = `
       <tr>
-        <td><input type="text" name="items[${rowIndex}][item_code]" id="item_cod${index}" class="form-control product-code"></td>
-
         <td>
           <select name="items[${rowIndex}][item_id]" id="item_name${index}" class="form-control select2-js product-select" onchange="onItemNameChange(this)">
             <option value="">Select Item</option>
@@ -222,25 +224,15 @@
   }
 
   function tableTotal() {
-    let total = 0;
-    let qty = 0;
-
+    let total = 0, qty = 0;
     $('#Purchase1Table tr').each(function () {
-
-      // ✅ Amount
       total += parseFloat($(this).find('input[id^="amount"]').val()) || 0;
-
-      // ✅ Quantity (FIXED)
-      qty += parseFloat($(this).find('input.quantity').val()) || 0;
-
+      qty += parseFloat($(this).find('input[name="quantity[]"]').val()) || 0;
     });
-
     $('#totalAmount').val(total.toFixed(2));
     $('#total_amount_show').val(total.toFixed(2));
-
     $('#total_quantity').val(qty.toFixed(2));
     $('#total_quantity_show').val(qty.toFixed(2));
-
     netTotal();
   }
 

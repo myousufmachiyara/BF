@@ -44,7 +44,7 @@
               <input type="text" name="ref_no" class="form-control" value="{{ $invoice->ref_no }}">
             </div>
 
-            <div class="col-md-3 mb-3">
+            <div class="col-md-3s mb-3">
               <label>Attachments</label>
               <input type="file" name="attachments[]" class="form-control" multiple accept=".pdf,.jpg,.jpeg,.png,.zip">
             </div>
@@ -59,7 +59,9 @@
             <table class="table table-bordered" id="purchaseTable">
               <thead>
                 <tr>
+                  <th>Item Code</th>
                   <th>Item Name</th>
+                  <th>Variation</th>
                   <th>Quantity</th>
                   <th>Unit</th>
                   <th>Price</th>
@@ -71,12 +73,18 @@
                 @foreach ($invoice->items as $key => $item)
                 <tr>
                   <td>
+                    <input type="text" name="items[{{ $key }}][item_code]" id="item_cod{{ $key+1 }}" 
+                           class="form-control product-code" value="{{ $item->barcode }}">
+                  </td>
+
+                  <td>
                     <select name="items[{{ $key }}][item_id]" id="item_name{{ $key+1 }}" 
                             class="form-control select2-js product-select" onchange="onItemNameChange(this)">
                       <option value="">Select Item</option>
                       @foreach ($products as $product)
-                        <option value="{{ $product->id }}" data-unit-id="{{ $product->measurement_unit }}"
-                          {{ $item->item_id == $product->id ? 'selected' : '' }}>
+                        <option value="{{ $product->id }}" data-barcode="{{ $product->barcode }}" 
+                                data-unit-id="{{ $product->measurement_unit }}"
+                                {{ $item->item_id == $product->id ? 'selected' : '' }}>
                           {{ $product->name }}
                         </option>
                       @endforeach
@@ -157,12 +165,94 @@
     // Initialize select2 for existing rows
     $('#Purchase1Table .select2-js').select2({ width: '100%', dropdownAutoWidth: true });
 
+    // Pre-fill variations for existing rows
+    $('#Purchase1Table tr').each(function () {
+        const row = $(this);
+        const productId = row.find('.product-select').val();
+        const variationId = row.find('.variation-select').val();
+        if (productId) {
+            loadVariations(row, productId, variationId);
+        }
+    });
+
     tableTotal(); // calculate totals for pre-filled data
 
     // 🔹 Manual Product selection flow
     $(document).on('change', '.product-select', function () {
       const row = $(this).closest('tr');
       const productId = $(this).val();
+      const preselectVariationId = $(this).data('preselectVariationId') || null;
+      $(this).removeData('preselectVariationId');
+
+      if (productId) {
+        loadVariations(row, productId, preselectVariationId);
+      } else {
+        row.find('.variation-select')
+          .html('<option value="">Select Variation</option>')
+          .prop('disabled', false)
+          .trigger('change');
+      }
+    });
+
+    // 🔹 Barcode scanning flow
+    $(document).on('blur', '.product-code', function () {
+      const row = $(this).closest('tr');
+      const barcode = $(this).val().trim();
+      if (!barcode) return;
+
+      $.ajax({
+        url: '/get-product-by-code/' + encodeURIComponent(barcode),
+        method: 'GET',
+        success: function (res) {
+          if (!res || !res.success) {
+            alert(res.message || 'Product not found');
+            row.find('.product-code').val('').focus();
+            row.find('.product-select').val('').trigger('change.select2');
+            row.find('.variation-select').html('<option value="">Select Variation</option>').prop('disabled', false).trigger('change');
+            return;
+          }
+
+          const $productSelect = row.find('.product-select');
+          const $variationSelect = row.find('.variation-select');
+
+          if (res.type === 'variation') {
+            const variation = res.variation;
+            $productSelect.val(variation.product_id).trigger('change.select2');
+            $variationSelect.html(`<option value="${variation.id}" selected>${variation.sku}</option>`)
+                            .prop('disabled', false)
+                            .trigger('change');
+            row.find('.quantity').focus();
+          } else if (res.type === 'product') {
+            const product = res.product;
+            $productSelect.val(product.id).trigger('change.select2');
+            loadVariations(row, product.id);
+            setTimeout(() => {
+              $variationSelect.select2('open');
+            }, 300);
+          }
+        },
+        error: function () {
+          alert('Error fetching product details.');
+        }
+      });
+    });
+
+    // 🔹 POS: Auto-add row when user presses Enter on Qty
+    $(document).on('keypress', '.quantity', function (e) {
+      if (e.which === 13) { // Enter key
+        e.preventDefault();
+        const row = $(this).closest('tr');
+        const qty = $(this).val().trim();
+
+        if (qty !== '') {
+          addNewRow(); // Add new row
+          const $newRow = $('#Purchase1Table tbody tr').last();
+          $newRow.find('.product-code').focus();
+        } else {
+          alert("Please enter quantity first.");
+          $(this).focus();
+        }
+      }
     });
   });
 
@@ -172,10 +262,14 @@
     const selectedOption = selectElement.options[selectElement.selectedIndex];
 
     const unitId = selectedOption.getAttribute('data-unit-id');
+    const barcode = selectedOption.getAttribute('data-barcode');
 
     const idMatch = selectElement.id.match(/\d+$/);
     if (!idMatch) return;
     const index = idMatch[0];
+
+    document.getElementById(`item_cod${index}`).value = barcode;
+    document.getElementById(`barcode${index}`).value = barcode;
 
     const unitSelector = $(`#unit${index}`);
     unitSelector.val(String(unitId)).trigger('change.select2');
@@ -204,6 +298,8 @@
 
     let newRow = `
       <tr>
+        <td><input type="text" name="items[${rowIndex}][item_code]" id="item_cod${index}" class="form-control product-code"></td>
+
         <td>
           <select name="items[${rowIndex}][item_id]" id="item_name${index}" class="form-control select2-js product-select" onchange="onItemNameChange(this)">
             <option value="">Select Item</option>
@@ -211,6 +307,12 @@
               `<option value="${product.id}" data-barcode="${product.barcode}" data-unit-id="${product.measurement_unit}">
                 ${product.name}
               </option>`).join('')}
+          </select>
+        </td>
+
+        <td>
+          <select name="items[${rowIndex}][variation_id]" class="form-control select2-js variation-select">
+            <option value="">Select Variation</option>
           </select>
         </td>
 
@@ -250,25 +352,15 @@
 
   // 🔹 Table total
   function tableTotal() {
-    let total = 0;
-    let qty = 0;
-
+    let total = 0, qty = 0;
     $('#Purchase1Table tr').each(function () {
-
-      // ✅ Amount
       total += parseFloat($(this).find('input[id^="amount"]').val()) || 0;
-
-      // ✅ Quantity (FIXED)
-      qty += parseFloat($(this).find('input.quantity').val()) || 0;
-
+      qty += parseFloat($(this).find('input[name="quantity[]"]').val()) || 0;
     });
-
     $('#totalAmount').val(total.toFixed(2));
     $('#total_amount_show').val(total.toFixed(2));
-
     $('#total_quantity').val(qty.toFixed(2));
     $('#total_quantity_show').val(qty.toFixed(2));
-
     netTotal();
   }
 

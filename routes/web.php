@@ -22,6 +22,7 @@ use App\Http\Controllers\{
     SummaryReportController,
     SaleReturnController,
     PermissionController,
+    PurchaseBiltyController,
 };
 
 Auth::routes();
@@ -35,8 +36,6 @@ Route::middleware(['auth'])->group(function () {
 
     // Product Helpers
     Route::get('/products/details', [ProductController::class, 'details'])->name('products.receiving');
-    Route::post('/products/bulk-upload', [ProductController::class, 'bulkUploadStore'])->name('products.bulk-upload.store');
-    Route::get('/products/bulk-upload/template', [ProductController::class, 'bulkUploadTemplate'])->name('products.bulk-upload.template');
 
     //Purchase Helper
     Route::get('/product/{product}/invoices', [PurchaseInvoiceController::class, 'getProductInvoices']);
@@ -59,6 +58,7 @@ Route::middleware(['auth'])->group(function () {
         // Purchases
         'purchase_invoices' => ['controller' => PurchaseInvoiceController::class, 'permission' => 'purchase_invoices'],
         'purchase_return' => ['controller' => PurchaseReturnController::class, 'permission' => 'purchase_return'],
+        'purchase_bilty' => ['controller' => PurchaseBiltyController::class, 'permission' => 'purchase_bilty'],
 
         // Sales
         'sale_invoices' => ['controller' => SaleInvoiceController::class, 'permission' => 'sale_invoices'],

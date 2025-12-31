@@ -16,11 +16,11 @@ class Product extends Model
         'description',
         'opening_stock',
         'selling_price',
+        'bilty_charges',
         'reorder_level',
         'max_stock_level',
         'minimum_order_qty',
         'measurement_unit',
-        'item_type',
         'is_active',
     ];
 

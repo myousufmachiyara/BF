@@ -46,16 +46,6 @@
             </div>
 
             <div class="col-md-2">
-              <label>Item Type</label>
-              <select name="item_type" class="form-control" required>
-                <option value="" disabled selected>Item Type</option>
-                <option value="fg">F.G</option>
-                <option value="raw">Raw</option>
-              </select>
-              @error('item_type')<div class="text-danger">{{ $message }}</div>@enderror
-            </div>
-
-            <div class="col-md-2">
               <label for="unit_id">Measurement Unit</label>
               <select name="measurement_unit" id="unit_id" class="form-control" required>
                 <option value="" disabled selected>-- Select Unit --</option>
@@ -69,6 +59,12 @@
               <label>Selling Price</label>
               <input type="number" step="any" name="selling_price" class="form-control" value="{{ old('selling_price', '0.00') }}">
               @error('selling_price')<div class="text-danger">{{ $message }}</div>@enderror
+            </div>
+
+            <div class="col-md-2">
+              <label>Bilty Charges</label>
+              <input type="number" step="any" name="bilty_charges" class="form-control" value="{{ old('bilty_charges', '0.00') }}">
+              @error('bilty_charges')<div class="text-danger">{{ $message }}</div>@enderror
             </div>
 
             <div class="col-md-2 mt-3">
@@ -120,7 +116,7 @@
             <section class="card">
               <header class="card-header">
                 <div style="display: flex;justify-content: space-between;">
-                  <h2 class="card-title">Product Parts / Raw Materials</h2>
+                  <h2 class="card-title">Parts</h2>
                   <div>
                     <button type="button" class="btn btn-primary btn-sm mt-1" onclick="addPartRow()">
                       <i class="fa fa-plus"></i> Add Part

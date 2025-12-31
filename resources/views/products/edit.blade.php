@@ -48,14 +48,6 @@
             </div>
 
             <div class="col-md-2">
-              <label>Item Type</label>
-              <select name="item_type" class="form-control select2-js">
-                <option value="fg" {{ $product->item_type == 'fg' ? 'selected' : '' }}>F.G</option>
-                <option value="raw" {{ $product->item_type == 'raw' ? 'selected' : '' }}>Raw</option>
-              </select>
-            </div>
-
-            <div class="col-md-2">
               <label>Measurement Unit *</label>
               <select name="measurement_unit" class="form-control" required>
                 <option value="">-- Select Unit --</option>

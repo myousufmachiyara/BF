@@ -22,6 +22,7 @@ return new class extends Migration
             // Inventory & Pricing
             $table->decimal('opening_stock', 10, 2)->default(0);
             $table->decimal('selling_price', 10, 2)->default(0);
+            $table->decimal('bilty_charges', 10, 2)->default(0);
 
             // Stock control
             $table->decimal('reorder_level', 10, 2)->default(0);
@@ -30,7 +31,6 @@ return new class extends Migration
 
             // Classification
             $table->unsignedBigInteger('measurement_unit');
-            $table->string('item_type', 10)->nullable(); // fg, raw, service
             $table->boolean('is_active')->default(true);
 
             $table->softDeletes();

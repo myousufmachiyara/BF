@@ -10,15 +10,12 @@ class PurchaseInvoice extends Model
     use SoftDeletes;
 
     protected $fillable = [
+        'invoice_no',
         'vendor_id',
         'invoice_date',
-        'payment_terms',
         'bill_no',
         'ref_no',
         'remarks',
-        'convance_charges',
-        'labour_charges',
-        'bill_discount',
         'created_by'
     ];
 
