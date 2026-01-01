@@ -20,7 +20,19 @@ class PurchaseInvoiceController extends Controller
 {
     public function index()
     {
-        $invoices = PurchaseInvoice::with('vendor')->latest()->get();
+        $user = auth()->user();
+
+        if ($user->hasRole('superadmin')) {
+            // Superadmin sees all invoices
+            $invoices = PurchaseInvoice::with('vendor')->latest()->get();
+        } else {
+            // Normal users see only their own invoices
+            $invoices = PurchaseInvoice::with('vendor')
+                ->where('created_by', $user->id)
+                ->latest()
+                ->get();
+        }
+
         return view('purchases.index', compact('invoices'));
     }
 
@@ -136,9 +148,16 @@ class PurchaseInvoiceController extends Controller
     public function edit($id)
     {
         $invoice = PurchaseInvoice::with(['items', 'attachments'])->findOrFail($id);
+        $user = auth()->user();
+
+        // Only admin or creator can edit
+        if (!$user->hasRole('superadmin') && $invoice->created_by != $user->id) {
+            abort(403, 'Unauthorized access');
+        }
+
         $vendors = ChartOfAccounts::where('account_type', 'vendor')->get();
         $products = Product::select('id', 'name', 'barcode', 'measurement_unit')->get();
-        $units = MeasurementUnit::all(); // <-- add this line
+        $units = MeasurementUnit::all();
 
         return view('purchases.edit', compact('invoice', 'vendors', 'products', 'units'));
     }

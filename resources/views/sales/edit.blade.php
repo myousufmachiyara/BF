@@ -148,168 +148,140 @@
 
   $(document).ready(function () {
 
-    /* ===============================
-      Initialize all Select2 controls
-    ===============================*/
-    $('#itemTable tbody tr').each(function () {
-      const row = $(this);
+      // Initialize existing rows
+      $('#itemTable tbody tr').each(function () {
+          const row = $(this);
+          initRowSelect2(row);
+          calcRowTotal(row);
+      });
+
+      // Product change handler
+      $(document).on('change', '.product-select', function () {
+          const row = $(this).closest('tr');
+
+          // 1️⃣ Auto-fill price
+          const productPrice = $(this).find(':selected').data('price') || 0;
+          row.find('.sale-price').val(productPrice);
+
+          // 2️⃣ Sync customization options
+          initRowSelect2(row);
+
+          // 3️⃣ Recalculate row total
+          calcRowTotal(row);
+      });
+
+      // Price / Qty input
+      $(document).on('input', '.sale-price, .quantity', function () {
+          calcRowTotal($(this).closest('tr'));
+      });
+
+      // Invoice-level discount
+      $(document).on('input', '#discountInput', calcTotal);
+
+      // Initial invoice total
+      calcTotal();
+  });
+
+  /**
+   * Initialize Select2 for a row and handle disabling the main product in multi-select
+   */
+  function initRowSelect2(row) {
       const productSelect = row.find('.product-select');
       const customizationSelect = row.find('select[name*="[customizations]"]');
 
-      // 1️⃣ Read pre-selected options from HTML
+      // Destroy old Select2 if exists
+      if (customizationSelect.hasClass("select2-hidden-accessible")) {
+          customizationSelect.select2('destroy');
+      }
+
+      const mainProductId = productSelect.val();
+
+      // Get preselected values
       const selectedVals = customizationSelect.find('option[selected]').map(function() {
-        return $(this).val();
+          return $(this).val();
       }).get();
 
-      // 2️⃣ Disable main product if not already selected
-      const mainProductId = productSelect.val();
+      // Enable/disable options
       customizationSelect.find('option').each(function() {
-        if ($(this).val() === mainProductId && !selectedVals.includes(mainProductId)) {
-          $(this).prop('disabled', true);
-        } else {
-          $(this).prop('disabled', false);
-        }
+          const optionVal = $(this).val();
+          if(optionVal === mainProductId && !selectedVals.includes(mainProductId)) {
+              $(this).prop('disabled', true);
+          } else {
+              $(this).prop('disabled', false);
+          }
       });
 
-      // 3️⃣ Initialize Select2 with selected values
+      // Initialize Select2 with selected values
       customizationSelect.val(selectedVals).select2({
-        width: '100%',
-        dropdownAutoWidth: true
+          width: '100%',
+          dropdownAutoWidth: true
       });
-
-      // 4️⃣ Calculate row total
-      calcRowTotal(row);
-    });
-
-    /* ===============================
-      Product change handler
-    ===============================*/
-    $(document).on('change', '.product-select', function () {
-      const row = $(this).closest('tr');
-      const productId = $(this).val();
-      const customizationSelect = row.find('select[name*="[customizations]"]');
-
-      // 1️⃣ Auto-fill price
-      const productPrice = $(this).find(':selected').data('price') || 0;
-      row.find('.sale-price').val(productPrice);
-
-      // 2️⃣ Disable main product in customization (if not already selected)
-      customizationSelect.find('option').each(function() {
-        const optionVal = $(this).val();
-        if (optionVal === productId && !$(this).is(':selected')) {
-          $(this).prop('disabled', true);
-        } else {
-          $(this).prop('disabled', false);
-        }
-      });
-
-      // Refresh Select2
-      customizationSelect.trigger('change.select2');
-
-      // 3️⃣ Recalculate row total
-      calcRowTotal(row);
-    });
-
-    /* ===============================
-      Price / Qty input
-    ===============================*/
-    $(document).on('input', '.sale-price, .quantity', function () {
-      calcRowTotal($(this).closest('tr'));
-    });
-
-    /* ===============================
-      Discount input
-    ===============================*/
-    $(document).on('input', '#discountInput', calcTotal);
-
-    /* ===============================
-      Initial invoice total
-    ===============================*/
-    calcTotal();
-
-  });
-
-
-  function syncCustomizationOptions(row) {
-    const productId = row.find('.product-select').val();
-    const customizationSelect = row.find('select[name*="[customizations]"]');
-
-    customizationSelect.find('option').each(function () {
-      const option = $(this);
-
-      // Disable main product only if it's not selected as customization
-      if (option.val() == productId) {
-        option.prop('disabled', !option.is(':selected'));
-      } else {
-        option.prop('disabled', false);
-      }
-    });
-
-    // Refresh Select2 UI
-    customizationSelect.trigger('change.select2');
   }
 
-  // Create and append a new item row
+  // Add new row
   function addRow() {
-    const idx = rowIndex++;
-    const rowHtml = `
-      <tr>
-        <td>
-          <select name="items[${idx}][product_id]" class="form-control select2-js product-select" required>
-            <option value="">Select Product</option>
-            @foreach($products as $product)
-              <option value="{{ $product->id }}" data-price="{{ $product->selling_price }}">{{ $product->name }}</option>
-            @endforeach
-          </select>
-        </td>
-        <td>
-          <select name="items[${idx}][customizations][]" multiple class="form-control select2-js">
-            @foreach($products as $product)
-              <option value="{{ $product->id }}">{{ $product->name }}</option>
-            @endforeach
-          </select>
-        </td>
-        <td><input type="number" name="items[${idx}][sale_price]" class="form-control sale-price" step="any" required></td>
-        <td><input type="number" name="items[${idx}][quantity]" class="form-control quantity" step="any" required></td>
-        <td><input type="number" name="items[${idx}][total]" class="form-control row-total" readonly></td>
-        <td><button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
-      </tr>
-    `;
-    $('#itemTable tbody').append(rowHtml);
+      const idx = rowIndex++;
+      const rowHtml = `
+        <tr>
+          <td>
+            <select name="items[${idx}][product_id]" class="form-control product-select" required>
+              <option value="">Select Product</option>
+              @foreach($products as $product)
+                <option value="{{ $product->id }}" data-price="{{ $product->selling_price }}">{{ $product->name }}</option>
+              @endforeach
+            </select>
+          </td>
+          <td>
+            <select name="items[${idx}][customizations][]" multiple class="form-control">
+              @foreach($products as $product)
+                <option value="{{ $product->id }}">{{ $product->name }}</option>
+              @endforeach
+            </select>
+          </td>
+          <td><input type="number" name="items[${idx}][sale_price]" class="form-control sale-price" step="any" required></td>
+          <td><input type="number" name="items[${idx}][quantity]" class="form-control quantity" step="any" required></td>
+          <td><input type="number" name="items[${idx}][total]" class="form-control row-total" readonly></td>
+          <td><button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+        </tr>
+      `;
 
-    const $newRow = $('#itemTable tbody tr').last();
-    $newRow.find('.select2-js').select2({ width: '100%', dropdownAutoWidth: true });
-    $newRow.find('.product-code').focus();
+      $('#itemTable tbody').append(rowHtml);
+
+      const $newRow = $('#itemTable tbody tr').last();
+      initRowSelect2($newRow);
+      $newRow.find('.product-select').focus();
   }
 
+  // Remove row
   function removeRow(btn) {
-    $(btn).closest('tr').remove();
-    calcTotal();
+      $(btn).closest('tr').remove();
+      calcTotal();
   }
 
   // Row-level total
   function calcRowTotal(row) {
-    const price = parseFloat(row.find('.sale-price').val()) || 0;
-    const qty = parseFloat(row.find('.quantity').val()) || 0;
-    const total = price * qty;
+      const price = parseFloat(row.find('.sale-price').val()) || 0;
+      const qty = parseFloat(row.find('.quantity').val()) || 0;
+      const total = price * qty;
 
-    row.find('.row-total').val(total.toFixed(2));
-    calcTotal();
+      row.find('.row-total').val(total.toFixed(2));
+      calcTotal();
   }
 
   // Invoice total
   function calcTotal() {
-    let total = 0;
-    $('.row-total').each(function () {
-      total += parseFloat($(this).val()) || 0;
-    });
+      let total = 0;
+      $('.row-total').each(function () {
+          total += parseFloat($(this).val()) || 0;
+      });
 
-    const invoiceDiscount = parseFloat($('#discountInput').val()) || 0;
-    const netAmount = Math.max(0, total - invoiceDiscount);
+      const invoiceDiscount = parseFloat($('#discountInput').val()) || 0;
+      const netAmount = Math.max(0, total - invoiceDiscount);
 
-    $('#netAmountText').text(netAmount.toFixed(2));
-    $('#netAmountInput').val(netAmount.toFixed(2));
+      $('#netAmountText').text(netAmount.toFixed(2));
+      $('#netAmountInput').val(netAmount.toFixed(2));
   }
 </script>
+
 
 @endsection

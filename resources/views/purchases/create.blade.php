@@ -56,7 +56,6 @@
             <table class="table table-bordered" id="purchaseTable">
               <thead>
                 <tr>
-                  <th>Item Code</th>
                   <th>Item Name</th>
                   <th>Quantity</th>
                   <th>Unit</th>
@@ -67,7 +66,6 @@
               </thead>
               <tbody id="Purchase1Table">
                 <tr>
-                  <td><input type="text" name="items[0][item_code]" id="item_cod1" class="form-control product-code"></td>
 
                   <td>
                     <select name="items[0][item_id]" id="item_name1" class="form-control select2-js product-select" onchange="onItemNameChange(this)">
@@ -177,8 +175,6 @@
 
     let newRow = `
       <tr>
-        <td><input type="text" name="items[${rowIndex}][item_code]" id="item_cod${index}" class="form-control product-code"></td>
-
         <td>
           <select name="items[${rowIndex}][item_id]" id="item_name${index}" class="form-control select2-js product-select" onchange="onItemNameChange(this)">
             <option value="">Select Item</option>

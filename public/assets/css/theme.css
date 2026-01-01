@@ -17738,6 +17738,7 @@ p.drop-caps.drop-caps-style-2:first-letter {
 	width: 100%;
 	/* min-width: 0; */
 	z-index: 992;
+	margin: 0px -100px !important;
 }
 
 .userbox .dropdown-menu li {

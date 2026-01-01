@@ -75,7 +75,7 @@ class DatabaseSeeder extends Seeder
         }
 
         // 📊 Report permissions (only view access, no CRUD)
-        $reports = ['inventory', 'purchase', 'production', 'sales', 'accounts'];
+        $reports = ['inventory', 'purchase', 'sales', 'accounts'];
 
         foreach ($reports as $report) {
             Permission::firstOrCreate([
