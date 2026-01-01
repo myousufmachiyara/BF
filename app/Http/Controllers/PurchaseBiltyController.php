@@ -279,10 +279,8 @@ class PurchaseBiltyController extends Controller
         <table border="1" cellpadding="4" style="text-align:center;font-size:10px;">
             <tr style="font-weight:bold; background-color:#f5f5f5;">
                 <th width="8%">#</th>
-                <th width="42%">Item</th>
+                <th width="60%">Item</th>
                 <th width="15%">Qty</th>
-                <th width="15%">Unit</th>
-                <th width="20%">Remarks</th>
             </tr>';
 
         $count = 0;
