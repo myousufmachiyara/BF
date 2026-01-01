@@ -57,8 +57,17 @@ class SaleInvoiceController extends Controller
                 'payload' => $validated,
             ]);
 
+             $lastInvoice = SaleInvoice::withTrashed()
+            ->orderBy('id', 'desc')
+            ->first();
+
+            $nextNumber = $lastInvoice ? intval($lastInvoice->invoice_no) + 1 : 1;
+
+            $invoiceNo = str_pad($nextNumber, 6, '0', STR_PAD_LEFT);
+
             /* Create Invoice */
             $invoice = SaleInvoice::create([
+                'invoice_no'       => $invoiceNo,
                 'date'       => $validated['date'],
                 'account_id' => $validated['account_id'],
                 'type'       => $validated['type'],
@@ -232,126 +241,144 @@ class SaleInvoiceController extends Controller
 
     public function print($id)
     {
-        $invoice = SaleInvoice::with(['account', 'items.product', 'items.variation'])->findOrFail($id);
+        $invoice = SaleInvoice::with(['account', 'items.product'])->findOrFail($id);
 
         $pdf = new \TCPDF();
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
-        $pdf->SetCreator('Your App');
-        $pdf->SetAuthor('Your Company');
-        $pdf->SetTitle('Sale Invoice #' . $invoice->id);
         $pdf->SetMargins(10, 10, 10);
-        $pdf->AddPage();
-        $pdf->setCellPadding(1.5);
+        $pdf->SetCreator(PDF_CREATOR);
+        $pdf->SetAuthor('Bilwani Furnitures');
+        $pdf->SetTitle('SALE-' . $invoice->invoice_no);
 
-        // --- Logo ---
-        $logoPath = public_path('assets/img/mj-logo.jpeg');
+        $pdf->AddPage();
+        $pdf->SetFont('helvetica', '', 10);
+
+        /* ---------------- Company Header ---------------- */
+        $logoPath = public_path('assets/img/bf_logo.jpg');
         if (file_exists($logoPath)) {
-            $pdf->Image($logoPath, 8, 10, 40);
+            $pdf->Image($logoPath, 12, 8, 40);
         }
 
-        // --- Invoice Info Box ---
-        $pdf->SetXY(130, 12);
-        $invoiceInfo = '
-        <table cellpadding="2" style="font-size:10px; line-height:14px;">
-            <tr><td><b>Invoice #</b></td><td>' . $invoice->id . '</td></tr>
-            <tr><td><b>Date</b></td><td>' . \Carbon\Carbon::parse($invoice->date)->format('d/m/Y') . '</td></tr>
-            <tr><td><b>Customer</b></td><td>' . ($invoice->account->name ?? '-') . '</td></tr>
-            <tr><td><b>Type</b></td><td>' . ucfirst($invoice->type) . '</td></tr>
-        </table>';
-        $pdf->writeHTML($invoiceInfo, false, false, false, false, '');
+        // Invoice Title (Top Right)
+        $pdf->SetFont('helvetica', 'B', 14);
+        $pdf->SetXY(120, 12);
+        $pdf->Cell(80, 8, 'Sale Invoice', 0, 1, 'R');
 
-        $pdf->Line(60, 52.25, 200, 52.25);
-
-        // --- Title Box ---
-        $pdf->SetXY(10, 48);
-        $pdf->SetFillColor(23, 54, 93);
-        $pdf->SetTextColor(255, 255, 255);
-        $pdf->SetFont('helvetica', '', 12);
-        $pdf->Cell(50, 8, 'Sale Invoice', 0, 1, 'C', 1);
-        $pdf->SetTextColor(0, 0, 0);
-
-        // --- Items Table ---
         $pdf->Ln(5);
-        $html = '<table border="0.3" cellpadding="4" style="text-align:center;font-size:10px;">
-            <tr style="background-color:#f5f5f5; font-weight:bold;">
-                <th width="7%">S.No</th>
-                <th width="20%">Product</th>
-                <th width="28%">Variation</th>
-                <th width="8%">Qty</th>
-                <th width="11%">Price</th>
-                <th width="13%">Discount</th>
-                <th width="13%">Total</th>
+        $pdf->SetFont('helvetica', '', 10);
+
+        /* ---------------- Customer + Invoice Info ---------------- */
+        $infoHtml = '
+        <table cellpadding="3" cellspacing="0" width="40%">
+            <tr>
+                <td>
+                    <table border="1" cellpadding="4" cellspacing="0" style="font-size:10px;">
+                        <tr>
+                            <td width="30%"><b>Customer</b></td>
+                            <td width="70%">' . ($invoice->account->name ?? '-') . '</td>
+                        </tr>
+                        <tr>
+                            <td width="30%"><b>Invoice No</b></td>
+                            <td width="70%">' . $invoice->invoice_no . '</td>
+                        </tr>
+                        <tr>
+                            <td width="30%"><b>Date</b></td>
+                            <td width="70%">' . \Carbon\Carbon::parse($invoice->date)->format('d-m-Y') . '</td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>';
+
+        $pdf->writeHTML($infoHtml, true, false, false, false, '');
+
+        /* ---------------- Items Table ---------------- */
+        $html = '
+        <table border="1" cellpadding="4" style="text-align:center;font-size:10px;">
+            <tr style="font-weight:bold; background-color:#f5f5f5;">
+                <th width="6%">#</th>
+                <th width="54%">Item</th>
+                <th width="10%">Qty</th>
+                <th width="15%">Price</th>
+                <th width="15%">Total</th>
             </tr>';
 
         $count = 0;
+        $totalQty = 0;
         $totalAmount = 0;
 
         foreach ($invoice->items as $item) {
             $count++;
 
-            $discountPercent = $item->discount ?? 0;
-            $discountAmount = ($item->sale_price * $discountPercent) / 100;
-            $netPrice = $item->sale_price - $discountAmount;
+            $discount = ($item->sale_price * ($item->discount ?? 0)) / 100;
+            $netPrice = $item->sale_price - $discount;
             $lineTotal = $netPrice * $item->quantity;
-            $totalAmount += $lineTotal;
 
             $html .= '
             <tr>
-                <td align="center">' . $count . '</td>
+                <td>' . $count . '</td>
                 <td>' . ($item->product->name ?? '-') . '</td>
-                <td>' . ($item->variation->sku ?? '-') . '</td>
-                <td align="center">'. $item->quantity . '</td>
-                <td align="right">' . number_format($item->sale_price, 2) . '</td>
-                <td align="right">' . number_format($item->discount, 0) . '%</td>
-                <td align="right">' . number_format($lineTotal, 2) . '</td>
+                <td>' . number_format($item->quantity, 2) . '</td>
+                <td>' . number_format($netPrice, 2) . '</td>
+                <td>' . number_format($lineTotal, 2) . '</td>
             </tr>';
+
+            $totalQty += $item->quantity;
+            $totalAmount += $lineTotal;
         }
 
-        // --- Totals ---
         $html .= '
-            <tr>
-                <td colspan="6" align="right"><b>Total</b></td>
-                <td align="right"><b>' . number_format($totalAmount, 2) . '</b></td>
-            </tr>';
+        <tr>
+            <td colspan="2" align="right"><b>Total</b></td>
+            <td><b>' . number_format($totalQty, 2) . '</b></td>
+            <td></td>
+            <td><b>' . number_format($totalAmount, 2) . '</b></td>
+        </tr>';
 
         if (!empty($invoice->discount)) {
-            $totalAmount -= $invoice->discount;
             $html .= '
             <tr>
-                <td colspan="6" align="right"><b>Invoice Discount (PKR) </b></td>
-                <td align="right">' . number_format($invoice->discount, 2) . '</td>
+                <td colspan="4" align="right"><b>Invoice Discount</b></td>
+                <td>' . number_format($invoice->discount, 2) . '</td>
             </tr>';
+
+            $totalAmount -= $invoice->discount;
         }
 
         $html .= '
-            <tr style="background-color:#f5f5f5;">
-                <td colspan="6" align="right"><b>Net Total</b></td>
-                <td align="right"><b>' . number_format($totalAmount, 2) . '</b></td>
-            </tr>
+        <tr style="background-color:#f5f5f5;">
+            <td colspan="4" align="right"><b>Net Total</b></td>
+            <td><b>' . number_format($totalAmount, 2) . '</b></td>
+        </tr>
         </table>';
 
-        $pdf->writeHTML($html, true, false, true, false, '');
+        $pdf->writeHTML($html, true, false, false, false, '');
 
-        // --- Remarks ---
+        /* ---------------- Remarks ---------------- */
         if (!empty($invoice->remarks)) {
-            $remarksHtml = '<b>Remarks:</b><br><span style="font-size:12px;">' . nl2br($invoice->remarks) . '</span>';
-            $pdf->writeHTML($remarksHtml, true, false, true, false, '');
+            $pdf->Ln(5);
+            $pdf->writeHTML('<b>Remarks:</b><br>' . nl2br($invoice->remarks), true, false, false, false, '');
         }
 
-        // --- Signatures ---
+        /* ---------------- Footer Signatures ---------------- */
         $pdf->Ln(20);
-        $yPos = $pdf->GetY();
-        $lineWidth = 40;
+        $lineWidth = 60;
+        $yPosition = $pdf->GetY();
 
-        $pdf->Line(28, $yPos, 28 + $lineWidth, $yPos);
-        $pdf->Line(130, $yPos, 130 + $lineWidth, $yPos);
+        $pdf->Line(28, $yPosition, 20 + $lineWidth, $yPosition);
+        $pdf->Line(130, $yPosition, 120 + $lineWidth, $yPosition);
 
-        $pdf->SetXY(28, $yPos + 2);
-        $pdf->Cell($lineWidth, 6, 'Received By', 0, 0, 'C');
-        $pdf->SetXY(130, $yPos + 2);
-        $pdf->Cell($lineWidth, 6, 'Authorized By', 0, 0, 'C');
+        $pdf->Ln(5);
+        $pdf->SetFont('helvetica', 'B', 12);
+
+        $pdf->SetXY(23, $yPosition);
+        $pdf->Cell($lineWidth, 10, 'Received By', 0, 0, 'C');
+
+        $pdf->SetXY(125, $yPosition);
+        $pdf->Cell($lineWidth, 10, 'Authorized By', 0, 0, 'C');
 
         return $pdf->Output('sale_invoice_' . $invoice->id . '.pdf', 'I');
     }
+
 }

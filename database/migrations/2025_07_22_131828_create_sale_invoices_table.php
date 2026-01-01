@@ -13,6 +13,7 @@ return new class extends Migration
     {
         Schema::create('sale_invoices', function (Blueprint $table) {
             $table->id();
+            $table->string('invoice_no', 10)->unique();
             $table->date('date');
             $table->unsignedBigInteger('account_id');
             $table->enum('type', ['cash', 'credit']); // distinguishes Cash and Credit
