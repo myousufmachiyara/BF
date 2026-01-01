@@ -61,10 +61,10 @@
             <thead>
               <tr>
                 <th>Item</th>
-                <th width="40%">Customize Item</th>
-                <th width="12%">Price</th>
-                <th width="12%">Qty</th>
-                <th width="12%">Total</th>
+                <th width="50%">Customize Item</th>
+                <th width="10%">Price</th>
+                <th width="8%">Qty</th>
+                <th width="10%">Total</th>
                 <th></th>
               </tr>
             </thead>
@@ -123,32 +123,81 @@
 </div>
 
 <script>
-  // Start from however many rows are already in the table (usually 1)
-  let rowIndex = $('#itemTable tbody tr').length || 1;
+let rowIndex = $('#itemTable tbody tr').length || 1;
 
-  $(document).ready(function () {
-    // Init select2 on existing controls
-    $('.select2-js').select2({ width: '100%', dropdownAutoWidth: true });
+$(document).ready(function () {
 
-    // Delegate: any price/qty/discount change -> recalc this row
-    $(document).on('input', '.sale-price, .quantity', function () {
-      calcRowTotal($(this).closest('tr'));
+    // Initialize existing rows
+    $('#itemTable tbody tr').each(function () {
+        const row = $(this);
+        initRowSelect2(row);
+        calcRowTotal(row);
     });
 
-    // Initial totals
-    calcTotal();
+    // Delegate: product change
+    $(document).on('change', '.product-select', function () {
+        const row = $(this).closest('tr');
 
-    // Invoice-level discount -> recalc net
+        // 1️⃣ Auto-fill price
+        const productPrice = $(this).find(':selected').data('price') || 0;
+        row.find('.sale-price').val(productPrice);
+
+        // 2️⃣ Sync customization options
+        initRowSelect2(row);
+
+        // 3️⃣ Recalculate row
+        calcRowTotal(row);
+    });
+
+    // Delegate: any price/qty change
+    $(document).on('input', '.sale-price, .quantity', function () {
+        calcRowTotal($(this).closest('tr'));
+    });
+
+    // Invoice-level discount
     $(document).on('input', '#discountInput', calcTotal);
-  });
+});
 
-  // Create and append a new item row
-  function addRow() {
+/**
+ * Initialize Select2 for a row and handle disabling the main product in multi-select
+ */
+function initRowSelect2(row) {
+    const customizationSelect = row.find('select[name*="[customizations]"]');
+    const mainProductId = row.find('.product-select').val();
+
+    // Destroy existing Select2
+    if (customizationSelect.hasClass("select2-hidden-accessible")) {
+        customizationSelect.select2('destroy');
+    }
+
+    // Get pre-selected options
+    const selectedVals = customizationSelect.find('option[selected]').map(function () {
+        return $(this).val();
+    }).get();
+
+    // Disable main product in multi-select if not selected
+    customizationSelect.find('option').each(function () {
+        if ($(this).val() == mainProductId && !selectedVals.includes(mainProductId)) {
+            $(this).prop('disabled', true);
+        } else {
+            $(this).prop('disabled', false);
+        }
+    });
+
+    // Initialize Select2 with preselected values
+    customizationSelect.val(selectedVals).select2({
+        width: '100%',
+        dropdownAutoWidth: true
+    });
+}
+
+// Add new row
+function addRow() {
     const idx = rowIndex++;
     const rowHtml = `
       <tr>
         <td>
-          <select name="items[${idx}][product_id]" class="form-control select2-js product-select" required>
+          <select name="items[${idx}][product_id]" class="form-control product-select" required>
             <option value="">Select Product</option>
             @foreach($products as $product)
               <option value="{{ $product->id }}" data-price="{{ $product->selling_price }}">{{ $product->name }}</option>
@@ -156,9 +205,9 @@
           </select>
         </td>
         <td>
-          <select name="items[${idx}][customizations][]" multiple class="form-control select2-js ">
+          <select name="items[${idx}][customizations][]" multiple class="form-control">
             @foreach($products as $product)
-              <option value="{{ $product->id }}" data-price="{{ $product->selling_price }}">{{ $product->name }}</option>
+              <option value="{{ $product->id }}">{{ $product->name }}</option>
             @endforeach
           </select>
         </td>
@@ -168,44 +217,43 @@
         <td><button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
       </tr>
     `;
+
     $('#itemTable tbody').append(rowHtml);
 
     const $newRow = $('#itemTable tbody tr').last();
-    $newRow.find('.select2-js').select2({ width: '100%', dropdownAutoWidth: true });
+    initRowSelect2($newRow);
+    $newRow.find('.product-select').focus();
+}
 
-    // ✅ focus the new barcode input
-    $newRow.find('.product-code').focus();
-  }
-
-  function removeRow(btn) {
+function removeRow(btn) {
     $(btn).closest('tr').remove();
     calcTotal();
-  }
+}
 
-  // Row-level total
-  function calcRowTotal(row) {
+// Calculate row total
+function calcRowTotal(row) {
     const price = parseFloat(row.find('.sale-price').val()) || 0;
     const qty = parseFloat(row.find('.quantity').val()) || 0;
-
     const total = price * qty;
 
     row.find('.row-total').val(total.toFixed(2));
     calcTotal();
-  }
+}
 
-  // Invoice total
-  function calcTotal() {
+// Calculate invoice total
+function calcTotal() {
     let total = 0;
     $('.row-total').each(function () {
-      total += parseFloat($(this).val()) || 0;
+        total += parseFloat($(this).val()) || 0;
     });
 
     const invoiceDiscount = parseFloat($('#discountInput').val()) || 0;
-    const netAmount = total - invoiceDiscount;
+    const netAmount = Math.max(0, total - invoiceDiscount);
 
     $('#netAmountText').text(netAmount.toFixed(2));
     $('#netAmountInput').val(netAmount.toFixed(2));
-  }
+}
 </script>
+
 
 @endsection

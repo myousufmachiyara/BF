@@ -64,11 +64,11 @@
           <table class="table table-bordered" id="itemTable">
             <thead>
               <tr>
-                <th>Product</th>
-                <th width="40%">Customize Item</th>
-                <th width="12%">Price</th>
-                <th width="12%">Qty</th>
-                <th width="12%">Total</th>
+                <th>Item</th>
+                <th width="50%">Customize Item</th>
+                <th width="10%">Price</th>
+                <th width="8%">Qty</th>
+                <th width="10%">Total</th>
                 <th></th>
               </tr>
             </thead>
