@@ -17,6 +17,7 @@ class ChartOfAccounts extends Model
         'account_type',
         'receivables',
         'payables',
+        'credit_limit',
         'opening_date',
         'remarks',
         'address',

@@ -19,6 +19,7 @@ return new class extends Migration
             $table->string('account_type')->nullable();
             $table->decimal('receivables', 15, 2)->default(0);
             $table->decimal('payables', 15, 2)->default(0);
+            $table->decimal('credit_limit', 15, 2)->default(0);
             $table->date('opening_date'); // Opening date for the account
             $table->string('remarks')->nullable(); // Optional remarks
             $table->string('address')->nullable(); // Optional address

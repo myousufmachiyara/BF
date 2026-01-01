@@ -126,6 +126,10 @@
                                     <input type="number" class="form-control" placeholder="Payables" value="0" name="payables" step="any" required>
                                 </div>
                                 <div class="col-lg-6 mb-2">
+                                    <label>Credit Limit<span style="color: red;"><strong>*</strong></span></label>
+                                    <input type="number" class="form-control" placeholder="Credit Limit" value="0" name="credit_limit" step="any" required>
+                                </div>
+                                <div class="col-lg-6 mb-2">
                                     <label>Date</label>
                                     <input type="date" class="form-control" placeholder="Date" name="opening_date" value="{{ date('Y-m-d') }}" required>
                                 </div>  
@@ -197,6 +201,10 @@
                                 <div class="col-lg-6 mb-2">
                                     <label>Payables<span style="color: red;"><strong>*</strong></span></label>
                                     <input type="number" class="form-control" placeholder="Payables" value="0" name="payables" step="any" required>
+                                </div>
+                                <div class="col-lg-6 mb-2">
+                                    <label>Credit Limit<span style="color: red;"><strong>*</strong></span></label>
+                                    <input type="number" class="form-control" placeholder="Credit Limit" value="0" name="credit_limit" step="any" required>
                                 </div>
                                 <div class="col-lg-6 mb-2">
                                     <label>Date</label>
