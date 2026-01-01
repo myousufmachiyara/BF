@@ -318,7 +318,7 @@ class SaleInvoiceController extends Controller
             $html .= '
             <tr>
                 <td>' . $count . '</td>
-                <td>' . ($item->product->name ?? '-') . '</td>
+                <td style="text-align:left">' . ($item->product->name ?? '-') . '</td>
                 <td>' . number_format($item->quantity, 2) . '</td>
                 <td>' . number_format($netPrice, 2) . '</td>
                 <td>' . number_format($lineTotal, 2) . '</td>
