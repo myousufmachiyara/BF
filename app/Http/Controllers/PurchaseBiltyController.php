@@ -280,7 +280,7 @@ class PurchaseBiltyController extends Controller
             <tr style="font-weight:bold; background-color:#f5f5f5;">
                 <th width="8%">#</th>
                 <th width="60%">Item</th>
-                <th width="15%">Qty</th>
+                <th width="30%">Qty</th>
             </tr>';
 
         $count = 0;
