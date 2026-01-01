@@ -147,45 +147,37 @@
   let rowIndex = {{ $invoice->items->count() }};
 
   $(document).ready(function () {
-    /* ===============================
-      Initialize Select2 for all selects
-    ===============================*/
-    $('.select2-js').select2({
-      width: '100%',
-      dropdownAutoWidth: true
-    });
 
     /* ===============================
-      Preload existing invoice items (EDIT MODE)
+      Initialize all Select2 controls
     ===============================*/
     $('#itemTable tbody tr').each(function () {
       const row = $(this);
-
       const productSelect = row.find('.product-select');
       const customizationSelect = row.find('select[name*="[customizations]"]');
 
-      // 1️⃣ Get pre-selected values (from HTML selected attributes)
+      // 1️⃣ Read pre-selected options from HTML
       const selectedVals = customizationSelect.find('option[selected]').map(function() {
         return $(this).val();
       }).get();
 
-      // 2️⃣ Apply selected values
-      customizationSelect.val(selectedVals).trigger('change.select2');
-
-      // 3️⃣ Disable main product if not in selectedVals
-      const productId = productSelect.val();
-      customizationSelect.find('option').each(function () {
-        if ($(this).val() == productId && !selectedVals.includes(productId)) {
+      // 2️⃣ Disable main product if not already selected
+      const mainProductId = productSelect.val();
+      customizationSelect.find('option').each(function() {
+        if ($(this).val() === mainProductId && !selectedVals.includes(mainProductId)) {
           $(this).prop('disabled', true);
         } else {
           $(this).prop('disabled', false);
         }
       });
 
-      // 4️⃣ Trigger Select2 refresh
-      customizationSelect.trigger('change.select2');
+      // 3️⃣ Initialize Select2 with selected values
+      customizationSelect.val(selectedVals).select2({
+        width: '100%',
+        dropdownAutoWidth: true
+      });
 
-      // 5️⃣ Calculate row total
+      // 4️⃣ Calculate row total
       calcRowTotal(row);
     });
 
@@ -197,41 +189,46 @@
       const productId = $(this).val();
       const customizationSelect = row.find('select[name*="[customizations]"]');
 
-      // Auto-fill price
+      // 1️⃣ Auto-fill price
       const productPrice = $(this).find(':selected').data('price') || 0;
       row.find('.sale-price').val(productPrice);
 
-      // Sync customization options
-      customizationSelect.find('option').each(function () {
-        const option = $(this);
-        if (option.val() == productId && !option.is(':selected')) {
-          option.prop('disabled', true);
+      // 2️⃣ Disable main product in customization (if not already selected)
+      customizationSelect.find('option').each(function() {
+        const optionVal = $(this).val();
+        if (optionVal === productId && !$(this).is(':selected')) {
+          $(this).prop('disabled', true);
         } else {
-          option.prop('disabled', false);
+          $(this).prop('disabled', false);
         }
       });
 
+      // Refresh Select2
       customizationSelect.trigger('change.select2');
 
-      // Recalculate total
+      // 3️⃣ Recalculate row total
       calcRowTotal(row);
     });
 
     /* ===============================
-      Price / Qty change handler
+      Price / Qty input
     ===============================*/
     $(document).on('input', '.sale-price, .quantity', function () {
       calcRowTotal($(this).closest('tr'));
     });
 
     /* ===============================
-      Discount change handler
+      Discount input
     ===============================*/
     $(document).on('input', '#discountInput', calcTotal);
 
-    // Initial invoice total
+    /* ===============================
+      Initial invoice total
+    ===============================*/
     calcTotal();
+
   });
+
 
   function syncCustomizationOptions(row) {
     const productId = row.find('.product-select').val();
