@@ -293,8 +293,6 @@ class PurchaseBiltyController extends Controller
                 <td>' . $count . '</td>
                 <td>' . ($item->product->name ?? '-') . '</td>
                 <td>' . number_format($item->quantity, 2) . '</td>
-                <td>' . ($item->unit->shortcode ?? '-') . '</td>
-                <td>' . ($item->remarks ?? '-') . '</td>
             </tr>';
 
             $totalQty += $item->quantity;
