@@ -278,7 +278,7 @@ class PurchaseBiltyController extends Controller
         $html = '
         <table border="1" cellpadding="4" style="text-align:center;font-size:10px;">
             <tr style="font-weight:bold; background-color:#f5f5f5;">
-                <th width="8%">#</th>
+                <th width="10%">#</th>
                 <th width="60%">Item</th>
                 <th width="30%">Qty</th>
             </tr>';
