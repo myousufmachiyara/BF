@@ -10,11 +10,10 @@ class SaleInvoiceItem extends Model
         'sale_invoice_id',
         'product_id',
         'sale_price',
-        'discount',
         'quantity',
     ];
 
-    public function invoice()
+    public function saleInvoice()
     {
         return $this->belongsTo(SaleInvoice::class, 'sale_invoice_id');
     }
@@ -24,8 +23,12 @@ class SaleInvoiceItem extends Model
         return $this->belongsTo(Product::class);
     }
 
-    public function measurementUnit()
+    public function customizations()
     {
-        return $this->belongsTo(MeasurementUnit::class, 'unit');
+        return $this->hasMany(
+            SaleItemCustomization::class,
+            'sale_invoice_items_id'
+        );
     }
 }
+

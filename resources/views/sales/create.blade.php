@@ -79,7 +79,7 @@
                   </select>
                 </td>
                 <td>
-                  <select multiple class="form-control select2-js ">
+                  <select name="items[0][customizations][]" multiple class="form-control select2-js ">
                     @foreach($products as $product)
                       <option value="{{ $product->id }}" data-price="{{ $product->selling_price }}">{{ $product->name }}</option>
                     @endforeach
@@ -131,7 +131,7 @@
     $('.select2-js').select2({ width: '100%', dropdownAutoWidth: true });
 
     // Delegate: any price/qty/discount change -> recalc this row
-    $(document).on('input', '.sale-price, .quantity, .disc-price', function () {
+    $(document).on('input', '.sale-price, .quantity', function () {
       calcRowTotal($(this).closest('tr'));
     });
 
@@ -156,7 +156,7 @@
           </select>
         </td>
         <td>
-          <select multiple class="form-control select2-js ">
+          <select name="items[${idx}][customizations][]" multiple class="form-control select2-js ">
             @foreach($products as $product)
               <option value="{{ $product->id }}" data-price="{{ $product->selling_price }}">{{ $product->name }}</option>
             @endforeach
@@ -186,10 +186,8 @@
   function calcRowTotal(row) {
     const price = parseFloat(row.find('.sale-price').val()) || 0;
     const qty = parseFloat(row.find('.quantity').val()) || 0;
-    const discPercent = parseFloat(row.find('.disc-price').val()) || 0;
 
-    const discountedPrice = price - (price * discPercent / 100);
-    const total = discountedPrice * qty;
+    const total = price * qty;
 
     row.find('.row-total').val(total.toFixed(2));
     calcTotal();

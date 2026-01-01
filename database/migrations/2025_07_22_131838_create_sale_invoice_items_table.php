@@ -16,7 +16,6 @@ return new class extends Migration
             $table->unsignedBigInteger('sale_invoice_id');
             $table->unsignedBigInteger('product_id');
             $table->decimal('sale_price', 10, 2); // actual selling price
-            $table->decimal('discount', 10, 2)->default(0); // per item discount
             $table->integer('quantity');
             $table->timestamps();
 

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\SaleInvoice;
 use App\Models\SaleInvoiceItem;
+use App\Models\SaleItemCustomization;
 use App\Models\ChartOfAccounts;
 use App\Models\Product;
 use Illuminate\Http\Request;
@@ -13,6 +14,14 @@ use Illuminate\Support\Facades\Log;
 
 class SaleInvoiceController extends Controller
 {
+    public function index()
+    {
+        $invoices = SaleInvoice::with('items.product', 'account')
+            ->latest()->get();
+
+        return view('sales.index', compact('invoices'));
+    }
+
     public function create()
     {
         return view('sales.create', [
@@ -23,106 +32,109 @@ class SaleInvoiceController extends Controller
 
     public function store(Request $request)
     {
-
-        // ✅ Validate incoming request
         $validated = $request->validate([
             'date'         => 'required|date',
             'account_id'   => 'required|exists:chart_of_accounts,id',
             'type'         => 'required|in:cash,credit',
             'discount'     => 'nullable|numeric|min:0',
             'remarks'      => 'nullable|string',
+
             'items'        => 'required|array|min:1',
             'items.*.product_id'   => 'required|exists:products,id',
-            'items.*.variation_id' => 'nullable|exists:product_variations,id',
             'items.*.sale_price'   => 'required|numeric|min:0',
-            'items.*.disc_price'   => 'nullable|numeric|min:0',
             'items.*.quantity'     => 'required|numeric|min:1',
-            'items.*.total'        => 'required|numeric|min:0',
+
+            // 🔥 Customization rules
+            'items.*.customizations'    => 'nullable|array',
+            'items.*.customizations.*'  => 'exists:products,id',
         ]);
 
         DB::beginTransaction();
+
         try {
-            Log::info('[SaleInvoice] Store start', [
-                'request' => $validated,
+            Log::info('[SaleInvoice] Store started', [
                 'user_id' => Auth::id(),
+                'payload' => $validated,
             ]);
 
-            // ✅ Create invoice
+            /* Create Invoice */
             $invoice = SaleInvoice::create([
                 'date'       => $validated['date'],
                 'account_id' => $validated['account_id'],
                 'type'       => $validated['type'],
                 'discount'   => $validated['discount'] ?? 0,
-                'created_by' => Auth::id(),
                 'remarks'    => $request->remarks,
+                'created_by' => Auth::id(),
             ]);
 
             Log::info('[SaleInvoice] Invoice created', [
                 'invoice_id' => $invoice->id,
-                'account_id' => $invoice->account_id,
             ]);
 
-            // ✅ Save items
+            /* Create Invoice Items */
             foreach ($validated['items'] as $index => $item) {
-                try {
-                    $saved = SaleInvoiceItem::create([
-                        'sale_invoice_id' => $invoice->id,
-                        'product_id'      => $item['product_id'],
-                        'variation_id'    => $item['variation_id'] ?? null,
-                        'sale_price'      => $item['sale_price'],
-                        'discount'        => $item['disc_price'] ?? 0,
-                        'quantity'        => $item['quantity'],
-                    ]);
 
-                    Log::info('[SaleInvoiceItem] Saved', [
-                        'invoice_id' => $invoice->id,
-                        'item_index' => $index,
-                        'item_id'    => $saved->id,
-                        'data'       => $item,
-                    ]);
-                } catch (\Throwable $itemEx) {
-                    Log::error('[SaleInvoiceItem] Save failed', [
-                        'invoice_id' => $invoice->id,
-                        'item_index' => $index,
-                        'item_data'  => $item,
-                        'error'      => $itemEx->getMessage(),
-                    ]);
-                    throw $itemEx; // rollback everything
+                $invoiceItem = SaleInvoiceItem::create([
+                    'sale_invoice_id' => $invoice->id,
+                    'product_id'      => $item['product_id'],
+                    'sale_price'      => $item['sale_price'],
+                    'quantity'        => $item['quantity'],
+                    'discount'        => 0,
+                ]);
+
+                Log::info('[SaleInvoiceItem] Item saved', [
+                    'invoice_item_id' => $invoiceItem->id,
+                    'product_id'      => $item['product_id'],
+                ]);
+
+                /* Save Customizations (OPTIONAL) */
+                if (!empty($item['customizations'])) {
+
+                    foreach ($item['customizations'] as $customItemId) {
+
+                        SaleItemCustomization::create([
+                            'sale_invoice_id'        => $invoice->id,
+                            'sale_invoice_items_id' => $invoiceItem->id,
+                            'item_id'               => $customItemId,
+                        ]);
+
+                        Log::info('[SaleItemCustomization] Saved', [
+                            'invoice_id'        => $invoice->id,
+                            'invoice_item_id'   => $invoiceItem->id,
+                            'custom_item_id'    => $customItemId,
+                        ]);
+                    }
                 }
             }
 
             DB::commit();
+
             Log::info('[SaleInvoice] Transaction committed', [
                 'invoice_id' => $invoice->id,
             ]);
 
-            return redirect()->route('sale_invoices.index')
+            return redirect()
+                ->route('sale_invoices.index')
                 ->with('success', 'Sale invoice created successfully.');
 
         } catch (\Throwable $e) {
+
             DB::rollBack();
+
             Log::error('[SaleInvoice] Store failed', [
-                'request_data' => $request->all(),
-                'error'        => $e->getMessage(),
-                'trace'        => $e->getTraceAsString(),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
-            return back()->withInput()
-                ->with('error', 'Error saving invoice. Please contact administrator.');
+            return back()
+                ->withInput()
+                ->with('error', 'Error saving invoice.');
         }
-    }
-
-    public function index()
-    {
-        $invoices = SaleInvoice::with('items.product', 'items.variation', 'account')
-            ->latest()->get();
-
-        return view('sales.index', compact('invoices'));
     }
 
     public function edit($id)
     {
-        $invoice = SaleInvoice::with('items.product', 'items.variation')->findOrFail($id);
+        $invoice = SaleInvoice::with('items.product','items.customizations.item')->findOrFail($id);
 
         return view('sales.edit', [
             'invoice'   => $invoice,
@@ -134,21 +146,24 @@ class SaleInvoiceController extends Controller
     public function update(Request $request, $id)
     {
         $validated = $request->validate([
-            'date'         => 'required|date',
-            'account_id'   => 'required|exists:chart_of_accounts,id',
-            'type'         => 'required|in:cash,credit',
-            'discount'     => 'nullable|numeric|min:0',
-            'remarks'      => 'nullable|string',
-            'items'        => 'required|array|min:1',
-            'items.*.product_id'   => 'required|exists:products,id',
-            'items.*.variation_id' => 'nullable|exists:product_variations,id',
-            'items.*.sale_price'   => 'required|numeric|min:0',
-            'items.*.disc_price'   => 'nullable|numeric|min:0',
-            'items.*.quantity'     => 'required|numeric|min:1',
-            'items.*.total'        => 'required|numeric|min:0',
+            'date'       => 'required|date',
+            'account_id' => 'required|exists:chart_of_accounts,id',
+            'type'       => 'required|in:cash,credit',
+            'discount'   => 'nullable|numeric|min:0',
+            'remarks'    => 'nullable|string',
+
+            'items'      => 'required|array|min:1',
+            'items.*.product_id' => 'required|exists:products,id',
+            'items.*.sale_price' => 'required|numeric|min:0',
+            'items.*.quantity'   => 'required|numeric|min:1',
+
+            // 👇 customizations
+            'items.*.customizations'   => 'nullable|array',
+            'items.*.customizations.*' => 'exists:products,id',
         ]);
 
         DB::beginTransaction();
+
         try {
             $invoice = SaleInvoice::findOrFail($id);
 
@@ -161,29 +176,50 @@ class SaleInvoiceController extends Controller
                 'remarks'    => $request->remarks,
             ]);
 
-            // ✅ Remove old items & re-insert
+            // 🔥 Remove old items & customizations
+            SaleItemCustomization::where('sale_invoice_id', $invoice->id)->delete();
             $invoice->items()->delete();
 
+            // ✅ Reinsert items + customizations
             foreach ($validated['items'] as $item) {
-                SaleInvoiceItem::create([
+
+                $invoiceItem = SaleInvoiceItem::create([
                     'sale_invoice_id' => $invoice->id,
                     'product_id'      => $item['product_id'],
-                    'variation_id'    => $item['variation_id'] ?? null,
                     'sale_price'      => $item['sale_price'],
-                    'discount'        => $item['disc_price'] ?? 0,
                     'quantity'        => $item['quantity'],
                 ]);
+
+                // 👉 Save customizations (optional)
+                if (!empty($item['customizations'])) {
+                    foreach ($item['customizations'] as $customItemId) {
+                        SaleItemCustomization::create([
+                            'sale_invoice_id'        => $invoice->id,
+                            'sale_invoice_items_id' => $invoiceItem->id,
+                            'item_id'               => $customItemId,
+                        ]);
+                    }
+                }
             }
 
             DB::commit();
-            return redirect()->route('sale_invoices.index')->with('success', 'Sale invoice updated successfully.');
+
+            return redirect()
+                ->route('sale_invoices.index')
+                ->with('success', 'Sale invoice updated successfully.');
+
         } catch (\Throwable $e) {
+
             DB::rollBack();
+
             Log::error('[SaleInvoice] Update failed', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
-            return back()->withInput()->with('error', 'Error updating invoice. Please contact administrator.');
+
+            return back()
+                ->withInput()
+                ->with('error', 'Error updating invoice.');
         }
     }
 
