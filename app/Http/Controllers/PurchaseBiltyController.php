@@ -302,7 +302,6 @@ class PurchaseBiltyController extends Controller
             <tr>
                 <td colspan="2" align="right"><b>Total</b></td>
                 <td><b>' . number_format($totalQty, 2) . '</b></td>
-                <td colspan="2"></td>
             </tr>
         </table>';
 
