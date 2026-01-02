@@ -5,7 +5,7 @@
 @section('content')
 <div class="row">
   <div class="col">
-    <form action="{{ route('purchase_invoices.store') }}" method="POST" enctype="multipart/form-data">
+    <form action="{{ route('purchase_invoices.store') }}" method="POST" onkeydown="return event.key != 'Enter';"  enctype="multipart/form-data">
       @csrf
       <section class="card">
         <header class="card-header d-flex justify-content-between align-items-center">

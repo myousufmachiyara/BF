@@ -4,7 +4,7 @@
 
 @section('content')
 <div class="row">
-  <form action="{{ route('sale_invoices.store') }}" method="POST">
+  <form action="{{ route('sale_invoices.store') }}" onkeydown="return event.key != 'Enter';" method="POST">
     @csrf
     <div class="col-12 mb-2">
       <section class="card">

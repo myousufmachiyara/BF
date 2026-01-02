@@ -4,7 +4,7 @@
 
 @section('content')
 <div class="row">
-  <form action="{{ route('sale_invoices.update', $invoice->id) }}" method="POST">
+  <form action="{{ route('sale_invoices.update', $invoice->id) }}" onkeydown="return event.key != 'Enter';" method="POST">
     @csrf
     @method('PUT')
 

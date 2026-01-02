@@ -5,7 +5,7 @@
 @section('content')
 <div class="row">
   <div class="col">
-    <form action="{{ route('purchase_invoices.update', $invoice->id) }}" method="POST" enctype="multipart/form-data">
+    <form action="{{ route('purchase_invoices.update', $invoice->id) }}" onkeydown="return event.key != 'Enter';" method="POST" enctype="multipart/form-data">
       @csrf
       @method('PUT')
       <section class="card">
