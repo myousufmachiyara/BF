@@ -156,7 +156,7 @@ class PurchaseInvoiceController extends Controller
         }
 
         $vendors = ChartOfAccounts::where('account_type', 'vendor')->get();
-        $products = Product::select('id', 'name', 'barcode', 'measurement_unit')->get();
+        $products = Product::select('id', 'name', 'measurement_unit')->get();
         $units = MeasurementUnit::all();
 
         return view('purchases.edit', compact('invoice', 'vendors', 'products', 'units'));
