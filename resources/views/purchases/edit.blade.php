@@ -59,6 +59,7 @@
             <table class="table table-bordered" id="purchaseTable">
               <thead>
                 <tr>
+                  <th>S.No</th>
                   <th>Item Name</th>
                   <th>Quantity</th>
                   <th>Unit</th>
@@ -70,6 +71,7 @@
               <tbody id="Purchase1Table">
                 @foreach ($invoice->items as $key => $item)
                 <tr>
+                  <td class="serial-no">{{ $key + 1 }}</td>
                   <td>
                     <select name="items[{{ $key }}][item_id]" id="item_name{{ $key+1 }}" 
                             class="form-control select2-js product-select" onchange="onItemNameChange(this)">
@@ -153,6 +155,13 @@
   // 🔹 Set index to start after existing rows
   var index = $('#Purchase1Table tr').length + 1;
 
+  function updateSerialNumbers() {
+    $('#Purchase1Table tr').each(function (index) {
+      $(this).find('.serial-no').text(index + 1);
+    });
+  }
+
+
   $(document).ready(function () {
     // Initialize select2 for existing rows
     $('#Purchase1Table .select2-js').select2({ width: '100%', dropdownAutoWidth: true });
@@ -164,6 +173,9 @@
       const row = $(this).closest('tr');
       const productId = $(this).val();
     });
+
+    updateSerialNumbers();
+
   });
 
   // 🔹 Item name change handler
@@ -188,7 +200,9 @@
       $(button).closest('tr').remove();
       $('#itemCount').val(--rows);
       tableTotal();
+      updateSerialNumbers();
     }
+
   }
 
   // 🔹 Add new row button
@@ -204,6 +218,7 @@
 
     let newRow = `
       <tr>
+        <td class="serial-no"></td>
         <td>
           <select name="items[${rowIndex}][item_id]" id="item_name${index}" class="form-control select2-js product-select" onchange="onItemNameChange(this)">
             <option value="">Select Item</option>

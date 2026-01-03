@@ -56,6 +56,7 @@
             <table class="table table-bordered" id="purchaseTable">
               <thead>
                 <tr>
+                  <th>S.No</th>
                   <th>Item Name</th>
                   <th>Quantity</th>
                   <th>Unit</th>
@@ -66,7 +67,7 @@
               </thead>
               <tbody id="Purchase1Table">
                 <tr>
-
+                  <td class="serial-no">1</td>
                   <td>
                     <select name="items[0][item_id]" id="item_name1" class="form-control select2-js product-select" onchange="onItemNameChange(this)">
                       <option value="">Select Item</option>
@@ -136,7 +137,15 @@
 
   $(document).ready(function () {
     $('.select2-js').select2({ width: '100%', dropdownAutoWidth: true });
+    updateSerialNumbers();
+
   });
+
+  function updateSerialNumbers() {
+    $('#Purchase1Table tr').each(function (index) {
+      $(this).find('.serial-no').text(index + 1);
+    });
+  }
 
   // 🔹 Keep all your existing functions exactly as they are
   function onItemNameChange(selectElement) {
@@ -161,6 +170,7 @@
       $(button).closest('tr').remove();
       $('#itemCount').val(--rows);
       tableTotal();
+      updateSerialNumbers();
     }
   }
 
@@ -175,6 +185,7 @@
 
     let newRow = `
       <tr>
+        <td class="serial-no"></td>
         <td>
           <select name="items[${rowIndex}][item_id]" id="item_name${index}" class="form-control select2-js product-select" onchange="onItemNameChange(this)">
             <option value="">Select Item</option>
@@ -208,6 +219,8 @@
     $(`#item_name${index}`).select2();
     $(`#unit${index}`).select2();
     index++;
+    updateSerialNumbers();
+
   }
 
   function rowTotal(row) {
