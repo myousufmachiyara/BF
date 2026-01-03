@@ -38,10 +38,7 @@
             <table class="table table-bordered" id="returnTable">
               <thead>
                 <tr>
-                  <th>Barcode</th>
                   <th>Item Name</th>
-                  <th>Variation</th>
-                  <th>Invoice #</th>
                   <th>Qty</th>
                   <th>Unit</th>
                   <th>Price</th>
@@ -53,9 +50,6 @@
                 @foreach($purchaseReturn->items as $idx => $item)
                   <tr>
                     <td>
-                      <input type="text" name="items[{{ $idx }}][barcode]" class="form-control product-code" value="{{ $item->item->barcode }}">
-                    </td>
-                    <td>
                       <select name="items[{{ $idx }}][item_id]" class="form-control select2-js product-select" onchange="onReturnItemChange(this)">
                         <option value="">Select Item</option>
                         @foreach($products as $product)
@@ -64,23 +58,6 @@
                             {{ $product->name }}
                           </option>
                         @endforeach
-                      </select>
-                    </td>
-
-                    <td>
-                      <select name="items[{{ $idx }}][variation_id]" class="form-control select2-js variation-select">
-                        <option value="">Select Variation</option>
-                        @foreach($item->item->variations ?? [] as $variation)
-                            <option value="{{ $variation->id }}" {{ $variation->id == $item->variation_id ? 'selected' : '' }}>
-                                {{ $variation->sku }}
-                            </option>
-                        @endforeach
-                      </select>
-                    </td>
-
-                    <td>
-                      <select name="items[{{ $idx }}][invoice_id]" class="form-control invoice-select" data-selected-id="{{ $item->purchase_invoice_id }}" required>
-                        <option value="">Select Invoice</option>
                       </select>
                     </td>
 
@@ -133,11 +110,6 @@
               <input type="hidden" name="total_amount" id="total_amount_hidden">
             </div>
 
-            <div class="col-md-3">
-              <label>Net Amount</label>
-              <input type="number" id="net_amount" class="form-control" readonly>
-              <input type="hidden" name="net_amount_hidden">
-            </div>
           </div>
         </div>
 
@@ -150,165 +122,51 @@
 </div>
 
 <script>
-var products = @json($products);
-var units = @json($units);
-var index = {{ $purchaseReturn->items->count() }};
+  var products = @json($products);
+  var units = @json($units);
+  var index = {{ $purchaseReturn->items->count() }};
 
-// ----------------- Add new row -----------------
-function addReturnRow() {
-  let newRow = `
-    <tr>
-      <td><input type="text" name="items[${index}][barcode]" class="form-control product-code"></td>
-      <td>
-        <select name="items[${index}][item_id]" class="form-control select2-js product-select" onchange="onReturnItemChange(this)">
-          <option value="">Select Item</option>
-          ${products.map(p => `<option value="${p.id}" data-barcode="${p.barcode}" data-unit="${p.measurement_unit}">${p.name}</option>`).join('')}
-        </select>
-      </td>
-      <td>
-        <select name="items[${index}][variation_id]" class="form-control select2-js variation-select">
-          <option value="">Select Variation</option>
-        </select>
-      </td>
-      <td>
-        <select name="items[${index}][invoice_id]" class="form-control invoice-select" required>
-          <option value="">Select Invoice</option>
-        </select>
-      </td>
-      <td><input type="number" name="items[${index}][quantity]" class="form-control quantity" step="any" onchange="rowTotal(${index})"></td>
-      <td>
-        <select name="items[${index}][unit]" class="form-control unit-select" required>
-          <option value="">-- Select --</option>
-          ${units.map(u => `<option value="${u.id}">${u.name} (${u.shortcode})</option>`).join('')}
-        </select>
-      </td>
-      <td><input type="number" name="items[${index}][price]" class="form-control price" step="any" onchange="rowTotal(${index})"></td>
-      <td><input type="number" name="items[${index}][amount]" class="form-control amount" step="any" readonly></td>
-      <td>
-        <button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)"><i class="fas fa-times"></i></button>
-      </td>
-    </tr>
-  `;
-  $('#ReturnTableBody').append(newRow);
-  $('.select2-js').select2({ width: '100%' });
-  index++;
-}
+  // ----------------- Add new row -----------------
+  function addReturnRow() {
+    let newRow = `
+      <tr>
+        <td>
+          <select name="items[${index}][item_id]" class="form-control select2-js product-select" onchange="onReturnItemChange(this)">
+            <option value="">Select Item</option>
+            ${products.map(p => `<option value="${p.id}" data-unit="${p.measurement_unit}">${p.name}</option>`).join('')}
+          </select>
+        </td>
+        <td><input type="number" name="items[${index}][quantity]" class="form-control quantity" step="any" onchange="rowTotal(${index})"></td>
+        <td>
+          <select name="items[${index}][unit]" class="form-control unit-select" required>
+            <option value="">-- Select --</option>
+            ${units.map(u => `<option value="${u.id}">${u.name} (${u.shortcode})</option>`).join('')}
+          </select>
+        </td>
+        <td><input type="number" name="items[${index}][price]" class="form-control price" step="any" onchange="rowTotal(${index})"></td>
+        <td><input type="number" name="items[${index}][amount]" class="form-control amount" step="any" readonly></td>
+        <td>
+          <button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)"><i class="fas fa-times"></i></button>
+        </td>
+      </tr>
+    `;
+    $('#ReturnTableBody').append(newRow);
+    $('.select2-js').select2({ width: '100%' });
+    index++;
+  }
 
-// ----------------- Product change -----------------
-function onReturnItemChange(select) {
-  const row = $(select).closest('tr');
-  const productId = $(select).val();
-  const barcode = $(select).find(':selected').data('barcode');
-  const unitId = $(select).find(':selected').data('unit');
+  // ----------------- Product change -----------------
+  function onReturnItemChange(select) {
+    const row = $(select).closest('tr');
+    const productId = $(select).val();
+    const unitId = $(select).find(':selected').data('unit');
+    row.find('select.unit-select').val(unitId).trigger('change');
+  }
 
-  row.find('input.product-code').val(barcode);
-  row.find('select.unit-select').val(unitId).trigger('change');
-
-  loadVariations(row, productId);
-  loadInvoices(row, productId, true);
-}
-
-// ----------------- Load variations -----------------
-function loadVariations(row, productId) {
-  const $variationSelect = row.find('.variation-select');
-  $variationSelect.html('<option>Loading...</option>');
-
-  $.get(`/product/${productId}/variations`, function(data){
-    let options = '<option value="">Select Variation</option>';
-    (data.variation || []).forEach(v => {
-      options += `<option value="${v.id}">${v.sku}</option>`;
-    });
-    $variationSelect.html(options);
-    $variationSelect.select2({ width: '100%' });
-  });
-}
-
-// ----------------- Load invoices -----------------
-function loadInvoices(row, productId, updatePrice=false, selectedInvoiceId=null) {
-  const $invoiceSelect = row.find('.invoice-select');
-  const $priceInput = row.find('.price');
-
-  $invoiceSelect.html('<option>Loading...</option>');
-
-  $.get(`/product/${productId}/invoices`, function(data){
-    let options = '<option value="">Select Invoice</option>';
-    data.forEach(inv => {
-      options += `<option value="${inv.id}" data-rate="${inv.rate}">#${inv.id}</option>`;
-    });
-    $invoiceSelect.html(options);
-
-    // Preselect invoice
-    if(selectedInvoiceId){
-      $invoiceSelect.val(selectedInvoiceId).trigger('change');
-    }
-
-    // Update price
-    if(updatePrice){
-      const rate = $invoiceSelect.find(':selected').data('rate') || 0;
-      $priceInput.val(rate);
-      const idx = $('#ReturnTableBody tr').index(row);
-      rowTotal(idx);
-    }
-  });
-}
-
-// ----------------- Invoice selection changes price -----------------
-$(document).on('change', '.invoice-select', function() {
-  const $row = $(this).closest('tr');
-  const rate = $(this).find(':selected').data('rate') || 0;
-  $row.find('.price').val(rate);
-  const idx = $('#ReturnTableBody tr').index($row);
-  rowTotal(idx);
-});
-
-// ----------------- Barcode scanning -----------------
-$(document).on('blur', '.product-code', function () {
-  const row = $(this).closest('tr');
-  const barcode = $(this).val().trim();
-  if (!barcode) return;
-
-  $.ajax({
-    url: '/get-product-by-code/' + encodeURIComponent(barcode),
-    method: 'GET',
-    success: function (res) {
-      if (!res || !res.success) {
-        alert(res?.message || 'Product not found');
-        resetRow(row);
-        return;
-      }
-
-      if(res.type === 'variation') {
-        const v = res.variation;
-        row.find('.product-select').val(v.product_id).trigger('change.select2');
-        row.find('.variation-select').html(`<option value="${v.id}" selected>${v.sku}</option>`).trigger('change.select2');
-        row.find('input.product-code').val(v.barcode);
-        row.find('input[name*="[barcode]"]').val(v.barcode);
-        loadInvoices(row, v.product_id, true);
-        row.find('.quantity').focus();
-      } else if(res.type === 'product') {
-        const p = res.product;
-        row.find('.product-select').val(p.id).trigger('change.select2');
-        row.find('.variation-select').html('<option value="">Select Variation</option>').trigger('change.select2');
-        row.find('input.product-code').val(p.barcode);
-        row.find('input[name*="[barcode]"]').val(p.barcode);
-        loadInvoices(row, p.id, true);
-        row.find('.variation-select').select2('open');
-      }
-    },
-    error: function() {
-      alert('Error fetching product details.');
-      resetRow(row);
-    }
-  });
-});
 
 // ----------------- Reset row -----------------
 function resetRow(row) {
-  row.find('.product-code').val('').focus();
   row.find('.product-select').val('').trigger('change.select2');
-  row.find('.variation-select').html('<option value="">Select Variation</option>').trigger('change.select2');
-  row.find('select.invoice-select').html('<option value="">Select Invoice</option>');
-  row.find('input[name*="[barcode]"]').val('');
 }
 
 // ----------------- Row totals -----------------
@@ -338,21 +196,6 @@ function removeRow(button) {
 $(document).ready(function(){
   $('.select2-js').select2({ width: '100%' });
   updateTotal();
-
-  // Reload invoices when vendor changes
-  $('select[name="vendor_id"]').on('change', function() {
-    $('#ReturnTableBody tr').each(function(){
-      const productId = $(this).find('.product-select').val();
-      if(productId) loadInvoices($(this), productId);
-    });
-  });
-
-  // Preload invoices for existing rows with selected ID
-  $('#ReturnTableBody tr').each(function(){
-    const productId = $(this).find('.product-select').val();
-    const invoiceId = $(this).find('.invoice-select').data('selected-id');
-    if(productId) loadInvoices($(this), productId, true, invoiceId);
-  });
 });
 </script>
 @endsection

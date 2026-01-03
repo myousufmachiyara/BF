@@ -49,8 +49,6 @@ class PurchaseReturnController extends Controller
 
             // Validate each item row
             'items.*.item_id' => 'required|exists:products,id',
-            'items.*.variation_id' => 'nullable|exists:product_variations,id',
-            'items.*.invoice_id' => 'required|exists:purchase_invoices,id',
             'items.*.quantity' => 'required|numeric|min:0',
             'items.*.unit' => 'required|exists:measurement_units,id',
             'items.*.price' => 'required|numeric|min:0',
@@ -64,7 +62,7 @@ class PurchaseReturnController extends Controller
                 'vendor_id' => $request->vendor_id,
                 'return_date' => $request->return_date,
                 'remarks' => $request->remarks,
-                'created_by'       => auth()->id(),
+                'created_by' => auth()->id(),
             ]);
 
             Log::info('Purchase Return created', ['id' => $purchaseReturn->id]);
@@ -73,12 +71,9 @@ class PurchaseReturnController extends Controller
                 PurchaseReturnItem::create([
                     'purchase_return_id' => $purchaseReturn->id,
                     'item_id' => $item['item_id'],
-                    'variation_id' => $item['variation_id'] ?? null, // <- variation_id
-                    'purchase_invoice_id' => $item['invoice_id'],
                     'quantity' => $item['quantity'],
                     'unit_id' => $item['unit'],
                     'price' => $item['price'],
-                    'amount' => $item['amount'],
                 ]);
 
                 Log::info('Purchase Return Item created', ['data' => $item]);
@@ -103,18 +98,14 @@ class PurchaseReturnController extends Controller
     {
         $purchaseReturn = PurchaseReturn::with([
             'items',
-            'items.item.purchaseInvoices', // load invoices via product
-            'items.variation',  // load variation for each item
-            'items.invoice',    // load invoice for each item
             'items.unit'        // load unit for each item
         ])->findOrFail($id);
 
         $products = Product::all();
         $vendors = ChartOfAccounts::where('account_type', 'vendor')->get();
         $units = MeasurementUnit::all();
-        $invoices = PurchaseInvoice::with('vendor')->get();
 
-        return view('purchase-returns.edit', compact('purchaseReturn', 'products', 'vendors', 'units', 'invoices'));
+        return view('purchase-returns.edit', compact('purchaseReturn', 'products', 'vendors', 'units'));
     }
 
     public function update(Request $request, $id)
@@ -126,16 +117,12 @@ class PurchaseReturnController extends Controller
             'return_date' => 'required|date',
             'remarks' => 'nullable|string|max:1000',
             'total_amount' => 'required|numeric|min:0',
-            'net_amount_hidden' => 'required|numeric|min:0',
 
             // Validate nested items
             'items.*.item_id' => 'required|exists:products,id',
-            'items.*.variation_id' => 'nullable|exists:product_variations,id',
-            'items.*.invoice_id' => 'required|exists:purchase_invoices,id',
             'items.*.quantity' => 'required|numeric|min:0',
             'items.*.unit' => 'required|exists:measurement_units,id',
             'items.*.price' => 'required|numeric|min:0',
-            'items.*.amount' => 'required|numeric|min:0',
         ]);
 
         try {
@@ -147,8 +134,6 @@ class PurchaseReturnController extends Controller
                 'vendor_id' => $request->vendor_id,
                 'return_date' => $request->return_date,
                 'remarks' => $request->remarks,
-                'total_amount' => $request->total_amount,
-                'net_amount' => $request->net_amount_hidden,
             ]);
 
             Log::info('PurchaseReturn updated', ['id' => $purchaseReturn->id]);
@@ -162,12 +147,9 @@ class PurchaseReturnController extends Controller
                 $data = [
                     'purchase_return_id' => $purchaseReturn->id,
                     'item_id' => $item['item_id'],
-                    'variation_id' => $item['variation_id'] ?? null,
-                    'purchase_invoice_id' => $item['invoice_id'],
                     'quantity' => $item['quantity'],
                     'unit_id' => $item['unit'],
                     'price' => $item['price'],
-                    'amount' => $item['amount'],
                     'remarks' => $item['remarks'] ?? null,
                 ];
 
