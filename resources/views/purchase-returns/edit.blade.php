@@ -80,7 +80,7 @@
                     </td>
 
                     <td>
-                      <input type="number" name="items[{{ $idx }}][amount]" class="form-control amount" step="any" value="{{ $item->amount }}" readonly>
+                      <input type="number" name="items[{{ $idx }}][amount]" class="form-control amount" step="any" value="{{ $item->price * $item->quantity }}" readonly>
                     </td>
 
                     <td>

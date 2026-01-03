@@ -45,9 +45,7 @@
           <table class="table table-bordered" id="itemsTable">
             <thead>
               <tr>
-                <th width="15%">Item Code</th>
                 <th>Product</th>
-                <th>Variation</th>
                 <th width="8%">Qty</th>
                 <th width="10%">Price</th>
                 <th width="12%">Total</th>
@@ -58,18 +56,12 @@
             </thead>
             <tbody>
               <tr>
-                <td><input type="text" class="form-control product-code" placeholder="Scan/Enter Code"></td>
                 <td>
                   <select name="items[0][product_id]" class="form-control product-select" required>
                     <option value="">Select Product</option>
                     @foreach($products as $prod)
                       <option value="{{ $prod->id }}" data-price="{{ $prod->selling_price }}">{{ $prod->name }}</option>
                     @endforeach
-                  </select>
-                </td>
-                <td>
-                  <select name="items[0][variation_id]" class="form-control variation-select">
-                    <option value="">Select Variation</option>
                   </select>
                 </td>
                 <td><input type="number" name="items[0][qty]" class="form-control qty" value="1" min="1"></td>
@@ -105,12 +97,11 @@
       let rowIndex = 1;
 
       // ✅ Initialize Select2
-      $('.product-select, .variation-select').select2({ width: '100%', dropdownAutoWidth: true });
+      $('.product-select').select2({ width: '100%', dropdownAutoWidth: true });
 
       // ✅ Add new row
       $("#addRow").click(function () {
           let newRow = `<tr>
-              <td><input type="text" class="form-control product-code" placeholder="Scan/Enter Code"></td>
               <td>
                 <select name="items[${rowIndex}][product_id]" class="form-control product-select" required>
                   <option value="">Select Product</option>
@@ -119,18 +110,13 @@
                   @endforeach
                 </select>
               </td>
-              <td>
-                <select name="items[${rowIndex}][variation_id]" class="form-control variation-select">
-                  <option value="">Select Variation</option>
-                </select>
-              </td>
               <td><input type="number" name="items[${rowIndex}][qty]" class="form-control quantity" value="1" min="1"></td>
               <td><input type="number" name="items[${rowIndex}][price]" class="form-control sale-price" step="any" required></td>
               <td><input type="number" name="items[${rowIndex}][total]" class="form-control row-total" readonly></td>
               <td><button type="button" class="btn btn-sm btn-danger removeRow"><i class="fas fa-trash"></i></button></td>
             </tr>`;
           $("#itemsTable tbody").append(newRow);
-          $('#itemsTable tbody tr:last .product-select, #itemsTable tbody tr:last .variation-select').select2({ width: '100%', dropdownAutoWidth: true });
+          $('#itemsTable tbody tr:last .product-select').select2({ width: '100%', dropdownAutoWidth: true });
           rowIndex++;
       });
 
@@ -144,25 +130,10 @@
       $(document).on("change", ".product-select", function () {
           let row = $(this).closest("tr");
           let productId = $(this).val();
-          let $variationSelect = row.find(".variation-select");
 
           // Set product’s base price
           let productPrice = $(this).find(":selected").data("price") || 0;
           row.find(".sale-price").val(productPrice);
-          calcRowTotal(row);
-
-          if (productId) {
-              loadVariations(row, productId);
-          } else {
-              $variationSelect.html('<option value="">Select Variation</option>').trigger('change');
-          }
-      });
-
-      // ✅ Variation change → update price
-      $(document).on("change", ".variation-select", function () {
-          let row = $(this).closest("tr");
-          let price = $(this).find(":selected").data("price") || 0;
-          row.find(".sale-price").val(price);
           calcRowTotal(row);
       });
 
@@ -170,69 +141,6 @@
       $(document).on("input", ".sale-price, .quantity", function () {
           let row = $(this).closest("tr");
           calcRowTotal(row);
-      });
-
-      // ✅ Barcode blur → auto-fill product + variation + price
-      $(document).on("blur", ".product-code", function () {
-          let row = $(this).closest("tr");
-          let barcode = $(this).val().trim();
-          if (!barcode) return;
-
-          $.ajax({
-              url: '/get-product-by-code/' + encodeURIComponent(barcode),
-              method: 'GET',
-              success: function (res) {
-                  const $productSelect = row.find('.product-select');
-                  const $variationSelect = row.find('.variation-select');
-
-                  if (!res || !res.success) {
-                      alert(res.message || 'Product not found');
-                      resetRow(row);
-                      return;
-                  }
-
-                  // 🔹 CASE 1: Barcode is a variation
-                  if (res.type === 'variation' && res.variation) {
-                      const v = res.variation;
-                      $productSelect.val(v.product_id).trigger('change.select2');
-                      loadVariations(row, v.product_id, v.id);
-
-                      row.find('.sale-price').val(v.price || 0);
-                      row.find('.quantity').val(row.find('.quantity').val() || 1);
-                      calcRowTotal(row);
-
-                      row.find('.quantity').focus();
-                      if (row.is(':last-child')) {
-                          $("#addRow").trigger("click");
-                          $('#itemsTable tbody tr:last .product-code').focus();
-                      }
-                      return;
-                  }
-
-                  // 🔹 CASE 2: Barcode is a product
-                  if (res.type === 'product' && res.product) {
-                      const p = res.product;
-                      if ($productSelect.find(`option[value="${p.id}"]`).length) {
-                          $productSelect.val(p.id).trigger('change.select2');
-                          row.find('.product-code').val(p.barcode);
-                          row.find('.sale-price').val(p.selling_price || 0);
-                          loadVariations(row, p.id);
-                          setTimeout(() => $variationSelect.select2('open'), 300);
-                      } else {
-                          alert("Product found but not in dropdown list.");
-                          resetRow(row);
-                      }
-                      return;
-                  }
-
-                  alert('Invalid response. Barcode not matched.');
-                  resetRow(row);
-              },
-              error: function () {
-                  alert('Error fetching product/variation.');
-                  resetRow(row);
-              }
-          });
       });
 
       // ✅ Helpers
@@ -252,30 +160,11 @@
       }
 
       function resetRow(row) {
-          row.find('.product-code').val('');
           row.find('.product-select').val('').trigger('change.select2');
-          row.find('.variation-select').html('<option value="">Select Variation</option>');
           row.find('.sale-price').val('');
           row.find('.quantity').val(1);
           row.find('.row-total').val('');
           calculateNetAmount();
-      }
-
-      // 🔹 Load variations with optional preselect
-      function loadVariations(row, productId, preselectVariationId = null) {
-          let $variationSelect = row.find('.variation-select');
-          $variationSelect.html('<option value="">Loading...</option>');
-          $.get(`/product/${productId}/variations`, function (data) {
-              let options = '<option value="">Select Variation</option>';
-              (data.variation || []).forEach(function (v) {
-                  options += `<option value="${v.id}" data-price="${v.price || 0}">${v.sku}</option>`;
-              });
-              $variationSelect.html(options).trigger('change');
-
-              if (preselectVariationId) {
-                  $variationSelect.val(preselectVariationId).trigger('change');
-              }
-          });
       }
   });
 </script>

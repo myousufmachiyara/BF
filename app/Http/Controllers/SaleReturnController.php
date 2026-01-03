@@ -16,7 +16,7 @@ class SaleReturnController extends Controller
 {
     public function index()
     {
-        $returns = SaleReturn::with(['customer','items.product','items.variation'])->latest()->get()
+        $returns = SaleReturn::with(['customer','items.product'])->latest()->get()
             ->map(function ($return) {
                 $return->total_amount = $return->items->sum(function ($item) {
                     return $item->qty * $item->price; // adjust field name
@@ -45,7 +45,6 @@ class SaleReturnController extends Controller
             'remarks'              => 'nullable|string|max:500',
             'items'                => 'required|array|min:1',
             'items.*.product_id'   => 'required|exists:products,id',
-            'items.*.variation_id' => 'nullable|exists:product_variations,id',
             'items.*.qty'          => 'required|numeric|min:1',
             'items.*.price'        => 'required|numeric|min:0',
         ]);
@@ -58,8 +57,17 @@ class SaleReturnController extends Controller
                 'payload' => $validated,
             ]);
 
+            $lastInvoice = SaleReturn::withTrashed()
+            ->orderBy('id', 'desc')
+            ->first();
+
+            $nextNumber = $lastInvoice ? intval($lastInvoice->invoice_no) + 1 : 1;
+
+            $invoiceNo = str_pad($nextNumber, 6, '0', STR_PAD_LEFT);
+
             // Create Sale Return
             $return = SaleReturn::create([
+                'invoice_no'=> $invoiceNo,
                 'account_id'     => $validated['customer_id'],
                 'return_date'     => $validated['return_date'],
                 'sale_invoice_no' => $validated['sale_invoice_no'] ?? null,
@@ -78,7 +86,6 @@ class SaleReturnController extends Controller
                     $savedItem = SaleReturnItem::create([
                         'sale_return_id' => $return->id,
                         'product_id'     => $item['product_id'],
-                        'variation_id'   => $item['variation_id'] ?? null,
                         'qty'            => $item['qty'],
                         'price'          => $item['price'],
                     ]);
@@ -125,7 +132,7 @@ class SaleReturnController extends Controller
 
     public function edit($id)
     {
-        $return = SaleReturn::with(['items.product', 'items.variation'])->findOrFail($id);
+        $return = SaleReturn::with(['items.product'])->findOrFail($id);
 
         return view('sale_returns.edit', [
             'return'    => $return,
@@ -150,7 +157,6 @@ class SaleReturnController extends Controller
             'remarks'              => 'nullable|string|max:500',
             'items'                => 'required|array|min:1',
             'items.*.product_id'   => 'required|exists:products,id',
-            'items.*.variation_id' => 'nullable|exists:product_variations,id',
             'items.*.qty'          => 'required|numeric|min:1',
             'items.*.price'        => 'required|numeric|min:0',
         ]);
@@ -176,7 +182,6 @@ class SaleReturnController extends Controller
                 SaleReturnItem::create([
                     'sale_return_id' => $return->id,
                     'product_id'     => $item['product_id'],
-                    'variation_id'   => $item['variation_id'] ?? null,
                     'qty'            => $item['qty'],
                     'price'          => $item['price'],
                 ]);
@@ -210,7 +215,7 @@ class SaleReturnController extends Controller
 
     public function show($id)
     {
-        $return = SaleReturn::with('items.product','items.variation','account','saleInvoice')->findOrFail($id);
+        $return = SaleReturn::with('items.product','account','saleInvoice')->findOrFail($id);
         return response()->json($return);
     }
 
@@ -228,51 +233,68 @@ class SaleReturnController extends Controller
 
     public function print($id)
     {
-        $return = SaleReturn::with(['customer','items.product','items.variation'])->findOrFail($id);
+        $return = SaleReturn::with(['customer','items.product'])->findOrFail($id);
 
         $pdf = new \TCPDF();
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
         $pdf->SetCreator('Your App');
         $pdf->SetAuthor('Your Company');
-        $pdf->SetTitle('Sale Return #'.$return->id);
+        $pdf->SetTitle('Sale Return #'.$return->invoice_no);
         $pdf->SetMargins(10, 10, 10);
         $pdf->AddPage();
         $pdf->setCellPadding(1.5);
 
-        // --- Logo ---
-        $logoPath = public_path('assets/img/mj-logo.jpeg');
+        // --- Company Header ---
+        $logoPath = public_path('assets/img/bf_logo.jpg');
+
+        // Logo (Top Left)
         if (file_exists($logoPath)) {
-            $pdf->Image($logoPath, 8, 10, 40);
+            $pdf->Image($logoPath, 12, 8, 40);
         }
 
-        // --- Return Info Box ---
-        $pdf->SetXY(130, 12);
-        $returnInfo = '
-        <table cellpadding="2" style="font-size:10px; line-height:14px;">
-            <tr><td><b>Return #</b></td><td>'.$return->id.'</td></tr>
-            <tr><td><b>Date</b></td><td>'.\Carbon\Carbon::parse($return->return_date)->format('d/m/Y').'</td></tr>
-            <tr><td><b>Customer</b></td><td>'.($return->customer->name ?? '-').'</td></tr>
-            <tr><td><b>Sale Invoice</b></td><td>'.($return->sale_invoice_no ?? '-').'</td></tr>
-        </table>';
-        $pdf->writeHTML($returnInfo, false, false, false, false, '');
+        // Purchase INVOICE (Top Right)
+        $pdf->SetFont('helvetica', 'B', 14);
 
-        // --- Title Box ---
-        $pdf->Line(60, 52.25, 200, 52.25);
-        $pdf->SetXY(10, 48);
-        $pdf->SetFillColor(23, 54, 93);
-        $pdf->SetTextColor(255, 255, 255);
-        $pdf->SetFont('helvetica', '', 12);
-        $pdf->Cell(50, 8, 'Sale Return', 0, 1, 'C', 1);
-        $pdf->SetTextColor(0, 0, 0);
+        // Page width = 210 (A4) - margins (10+10)
+        $pdf->SetXY(120, 12);
+        $pdf->Cell(80, 8, 'Sale Return Invoice', 0, 1, 'R');
+
+       
+        // --- Customer + Invoice Info ---
+        $pdf->Ln(5);
+        $pdf->SetFont('helvetica', '', 10);
+
+        $infoHtml = '
+        <table cellpadding="3" cellspacing="0" width="40%">
+            <tr>
+                <td>
+                    <table border="1" cellpadding="4" cellspacing="0" style="font-size:10px;">
+                        <tr>
+                            <td width="30%"><b>Vendor</b></td>
+                            <td width="70%">'.($return->customer->name ?? '-').'</td>
+                        </tr>
+                        <tr>
+                            <td width="30%"><b>Invoice No</b></td>
+                            <td width="70%">'.$return->invoice_no.'</td>
+                        </tr>
+                        <tr>
+                            <td width="30%"><b>Date</b></td>
+                            <td width="70%">'.\Carbon\Carbon::parse($return->return_date)->format('d-m-Y').'</td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>';
+
+        $pdf->writeHTML($infoHtml, true, false, false, false, '');
 
         // --- Items Table ---
         $pdf->Ln(5);
         $html = '<table border="0.3" cellpadding="4" style="text-align:center;font-size:10px;">
             <tr style="background-color:#f5f5f5; font-weight:bold;">
                 <th width="8%">S.No</th>
-                <th width="25%">Product</th>
-                <th width="30%">Variation</th>
+                <th width="50%">Product</th>
                 <th width="10%">Qty</th>
                 <th width="12%">Price</th>
                 <th width="15%">Total</th>
@@ -290,7 +312,6 @@ class SaleReturnController extends Controller
             <tr>
                 <td align="center">'.$count.'</td>
                 <td>'.($item->product->name ?? '-').'</td>
-                <td>'.($item->variation->sku ?? '-').'</td>
                 <td align="center">'.number_format($item->qty, 2).'</td>
                 <td align="right">'.number_format($item->price, 2).'</td>
                 <td align="right">'.number_format($lineTotal, 2).'</td>
@@ -299,23 +320,8 @@ class SaleReturnController extends Controller
 
         // --- Totals ---
         $html .= '
-            <tr>
-                <td colspan="5" align="right"><b>Total</b></td>
-                <td align="right"><b>'.number_format($totalAmount, 2).'</b></td>
-            </tr>';
-
-        if (!empty($return->discount)) {
-            $totalAmount -= $return->discount;
-            $html .= '
-            <tr>
-                <td colspan="5" align="right"><b>Return Discount</b></td>
-                <td align="right">'.number_format($return->discount, 2).'</td>
-            </tr>';
-        }
-
-        $html .= '
             <tr style="background-color:#f5f5f5;">
-                <td colspan="5" align="right"><b>Net Total</b></td>
+                <td colspan="4" align="right"><b>Total</b></td>
                 <td align="right"><b>'.number_format($totalAmount, 2).'</b></td>
             </tr>
         </table>';

@@ -13,12 +13,14 @@ return new class extends Migration
     {
         Schema::create('sale_returns', function (Blueprint $table) {
             $table->id();
+            $table->string('invoice_no', 10)->unique();
             $table->unsignedBigInteger('account_id');
             $table->date('return_date');
             $table->string('sale_invoice_no', 50)->nullable(); // invoice reference
             $table->text('remarks')->nullable();
             $table->unsignedBigInteger('created_by');
             $table->timestamps();
+            $table->softdeletes();
 
             $table->foreign('account_id')->references('id')->on('chart_of_accounts')->onDelete('cascade');
             $table->foreign('created_by')->references('id')->on('users')->onDelete('cascade');

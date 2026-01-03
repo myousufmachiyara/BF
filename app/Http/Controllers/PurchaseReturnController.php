@@ -52,13 +52,21 @@ class PurchaseReturnController extends Controller
             'items.*.quantity' => 'required|numeric|min:0',
             'items.*.unit' => 'required|exists:measurement_units,id',
             'items.*.price' => 'required|numeric|min:0',
-            'items.*.amount' => 'required|numeric|min:0',
         ]);
 
         try {
             DB::beginTransaction();
 
+            $lastInvoice = PurchaseReturn::withTrashed()
+            ->orderBy('id', 'desc')
+            ->first();
+
+            $nextNumber = $lastInvoice ? intval($lastInvoice->invoice_no) + 1 : 1;
+
+            $invoiceNo = str_pad($nextNumber, 6, '0', STR_PAD_LEFT);
+
             $purchaseReturn = PurchaseReturn::create([
+                'invoice_no'=> $invoiceNo,
                 'vendor_id' => $request->vendor_id,
                 'return_date' => $request->return_date,
                 'remarks' => $request->remarks,
@@ -116,7 +124,6 @@ class PurchaseReturnController extends Controller
             'vendor_id' => 'required|exists:chart_of_accounts,id',
             'return_date' => 'required|date',
             'remarks' => 'nullable|string|max:1000',
-            'total_amount' => 'required|numeric|min:0',
 
             // Validate nested items
             'items.*.item_id' => 'required|exists:products,id',
@@ -150,7 +157,6 @@ class PurchaseReturnController extends Controller
                     'quantity' => $item['quantity'],
                     'unit_id' => $item['unit'],
                     'price' => $item['price'],
-                    'remarks' => $item['remarks'] ?? null,
                 ];
 
                 Log::info('Creating PurchaseReturnItem', $data);
@@ -175,43 +181,61 @@ class PurchaseReturnController extends Controller
 
     public function print($id)
     {
-        $return = PurchaseReturn::with(['vendor', 'items.item', 'items.unit', 'items.invoice'])->findOrFail($id);
+        $return = PurchaseReturn::with(['vendor', 'items.item', 'items.unit'])->findOrFail($id);
 
         $pdf = new \TCPDF();
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
         $pdf->SetCreator('Your App');
         $pdf->SetAuthor('Your Company');
-        $pdf->SetTitle('Purchase Return #' . $return->id);
+        $pdf->SetTitle('Purchase Return #' . $return->invoice_no);
         $pdf->SetMargins(10, 10, 10);
         $pdf->AddPage();
         $pdf->setCellPadding(1.5);
 
-        // --- Logo ---
-        $logoPath = public_path('assets/img/mj-logo.jpeg');
+        // --- Company Header ---
+        $logoPath = public_path('assets/img/bf_logo.jpg');
+
+        // Logo (Top Left)
         if (file_exists($logoPath)) {
-            $pdf->Image($logoPath, 8, 10, 40);
+            $pdf->Image($logoPath, 12, 8, 40);
         }
 
-        // --- Return Info Box ---
-        $pdf->SetXY(130, 12);
-        $returnInfo = '
-        <table cellpadding="2" style="font-size:10px; line-height:14px;">
-            <tr><td><b>Return #</b></td><td>' . $return->id . '</td></tr>
-            <tr><td><b>Date</b></td><td>' . \Carbon\Carbon::parse($return->return_date)->format('d/m/Y') . '</td></tr>
-            <tr><td><b>Vendor</b></td><td>' . ($return->vendor->name ?? '-') . '</td></tr>
+        // Purchase INVOICE (Top Right)
+        $pdf->SetFont('helvetica', 'B', 14);
+
+        // Page width = 210 (A4) - margins (10+10)
+        $pdf->SetXY(120, 12);
+        $pdf->Cell(80, 8, 'Purchase Return Invoice', 0, 1, 'R');
+
+       
+        // --- Customer + Invoice Info ---
+        $pdf->Ln(5);
+        $pdf->SetFont('helvetica', '', 10);
+
+        $infoHtml = '
+        <table cellpadding="3" cellspacing="0" width="40%">
+            <tr>
+                <td>
+                    <table border="1" cellpadding="4" cellspacing="0" style="font-size:10px;">
+                        <tr>
+                            <td width="30%"><b>Vendor</b></td>
+                            <td width="70%">'.($return->vendor->name ?? '-').'</td>
+                        </tr>
+                        <tr>
+                            <td width="30%"><b>Invoice No</b></td>
+                            <td width="70%">'.$return->invoice_no.'</td>
+                        </tr>
+                        <tr>
+                            <td width="30%"><b>Date</b></td>
+                            <td width="70%">'.\Carbon\Carbon::parse($return->invoice_date)->format('d-m-Y').'</td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
         </table>';
-        $pdf->writeHTML($returnInfo, false, false, false, false, '');
 
-        $pdf->Line(60, 52.25, 200, 52.25);
-
-        // --- Title Box ---
-        $pdf->SetXY(10, 48);
-        $pdf->SetFillColor(23, 54, 93);
-        $pdf->SetTextColor(255, 255, 255);
-        $pdf->SetFont('helvetica', '', 12);
-        $pdf->Cell(50, 8, 'Purchase Return', 0, 1, 'C', 1);
-        $pdf->SetTextColor(0, 0, 0);
+        $pdf->writeHTML($infoHtml, true, false, false, false, '');
 
         // --- Items Table ---
         $pdf->Ln(5);

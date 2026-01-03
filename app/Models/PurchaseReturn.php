@@ -9,7 +9,7 @@ class PurchaseReturn extends Model
 {
     use SoftDeletes;
 
-    protected $fillable = ['vendor_id', 'return_date', 'remarks', 'created_by'];
+    protected $fillable = ['invoice_no', 'vendor_id', 'return_date', 'remarks', 'created_by'];
 
     protected $casts = [
         'return_date' => 'date',
