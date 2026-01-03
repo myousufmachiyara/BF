@@ -253,6 +253,8 @@
     $(`#item_name${index}`).select2();
     $(`#unit${index}`).select2();
     index++;
+    updateSerialNumbers();
+
   }
 
   // 🔹 Row total
