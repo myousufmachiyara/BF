@@ -224,10 +224,10 @@ class VoucherController extends Controller
         // Details Table
         $html = '<table border="0.3" cellpadding="4" style="text-align:center;font-size:10px;">
             <tr style="background-color:#f5f5f5; font-weight:bold;">
-                <th width="10%">S.No</th>
-                <th width="40%">Debit Account</th>
-                <th width="40%">Credit Account</th>
-                <th width="10%">Amount</th>
+                <th width="8%">S.No</th>
+                <th width="36%">Debit Account</th>
+                <th width="36%">Credit Account</th>
+                <th width="20%">Amount</th>
             </tr>';
 
         $html .= '<tr>
