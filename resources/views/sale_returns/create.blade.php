@@ -64,7 +64,7 @@
                     @endforeach
                   </select>
                 </td>
-                <td><input type="number" name="items[0][qty]" class="form-control qty" value="1" min="1"></td>
+                <td><input type="number" name="items[0][qty]" class="form-control quantity" value="1" min="1"></td>
                 <td><input type="number" name="items[0][price]" class="form-control sale-price" step="any" required></td>
                 <td><input type="number" name="items[0][total]" class="form-control row-total" readonly></td>
                 <td><button type="button" class="btn btn-sm btn-danger removeRow"><i class="fas fa-trash"></i></button></td>

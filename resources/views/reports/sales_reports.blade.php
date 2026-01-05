@@ -99,56 +99,109 @@
             </table>
         </div>
 
-        {{-- CUSTOMER WISE --}}
-        <div id="CW" class="tab-pane fade {{ $tab==='CW'?'show active':'' }}">
+        {{-- CUSTOMER-WISE SALE --}}
+        <div id="CW" class="tab-pane fade {{ $tab=='CW'?'show active':'' }}">
+
             <form method="GET" action="{{ route('reports.sale') }}" class="row g-3 mb-3">
                 <input type="hidden" name="tab" value="CW">
 
                 <div class="col-md-3">
-                    <label>From Date</label>
-                    <input type="date" class="form-control" name="from_date" value="{{ $from }}">
-                </div>
-                <div class="col-md-3">
-                    <label>To Date</label>
-                    <input type="date" class="form-control" name="to_date" value="{{ $to }}">
-                </div>
-
-                <div class="col-md-3">
                     <label>Customer</label>
                     <select name="customer_id" class="form-control">
-                        <option value="">All Customers</option>
+                        <option value="">-- All Customers --</option>
                         @foreach($customers as $cust)
-                            <option value="{{ $cust->id }}" {{ $customerId==$cust->id ? 'selected' : '' }}>
+                            <option value="{{ $cust->id }}" {{ request('customer_id')==$cust->id?'selected':'' }}>
                                 {{ $cust->name }}
                             </option>
                         @endforeach
                     </select>
                 </div>
 
+                <div class="col-md-3">
+                    <label>From Date</label>
+                    <input type="date" name="from_date" class="form-control" value="{{ $from }}">
+                </div>
+
+                <div class="col-md-3">
+                    <label>To Date</label>
+                    <input type="date" name="to_date" class="form-control" value="{{ $to }}">
+                </div>
+
                 <div class="col-md-2 d-flex align-items-end">
-                    <button type="submit" class="btn btn-primary w-100">Filter</button>
+                    <button class="btn btn-primary w-100">Filter</button>
                 </div>
             </form>
 
-            <h5 class="mt-3">Customer Wise Sales</h5>
+            @php
+                $grandQty   = $customerWise->sum('total_qty');
+                $grandTotal = $customerWise->sum('total_amount');
+            @endphp
+
+            <div class="mb-3 text-end">
+                <h5>Total Qty: <span class="text-primary">{{ $grandQty }}</span></h5>
+                <h3>Total Sales: <span class="text-success">{{ number_format($grandTotal, 2) }}</span></h3>
+            </div>
+
             <table class="table table-bordered table-striped">
                 <thead>
-                    <tr><th>Customer</th><th>No. of Invoices</th><th>Total Amount</th></tr>
+                    <tr>
+                        <th>Customer</th>
+                        <th>Invoice Date</th>
+                        <th>Invoice No</th>
+                        <th>Item</th>
+                        <th>Qty</th>
+                        <th>Rate</th>
+                        <th>Total</th>
+                    </tr>
                 </thead>
+
                 <tbody>
-                    @forelse($customerWise as $row)
-                        <tr>
-                            <td>{{ $row->customer }}</td>
-                            <td>{{ $row->count }}</td>
-                            <td>{{ number_format($row->total,2) }}</td>
+                    @forelse($customerWise as $custData)
+
+                        <tr class="table-secondary">
+                            <td colspan="7"><strong>{{ $custData->customer_name }}</strong></td>
                         </tr>
+
+                        @foreach($custData->items as $item)
+                            <tr>
+                                <td></td>
+                                <td>{{ $item->invoice_date }}</td>
+                                <td>{{ $item->invoice_no }}</td>
+                                <td>{{ $item->item_name }}</td>
+                                <td>{{ $item->quantity }}</td>
+                                <td>{{ number_format($item->rate,2) }}</td>
+                                <td>{{ number_format($item->total,2) }}</td>
+                            </tr>
+                        @endforeach
+
+                        <tr class="fw-bold">
+                            <td colspan="4" class="text-end">Customer Total</td>
+                            <td>{{ $custData->total_qty }}</td>
+                            <td>-</td>
+                            <td>{{ number_format($custData->total_amount,2) }}</td>
+                        </tr>
+
                     @empty
-                        <tr><td colspan="3" class="text-center text-muted">No sales data found.</td></tr>
+                        <tr>
+                            <td colspan="7" class="text-center text-muted">
+                                No customer sale data found.
+                            </td>
+                        </tr>
                     @endforelse
                 </tbody>
+
+                @if(count($customerWise))
+                <tfoot>
+                    <tr class="fw-bold">
+                        <th colspan="4" class="text-end">Grand Total</th>
+                        <th>{{ $grandQty }}</th>
+                        <th>-</th>
+                        <th>{{ number_format($grandTotal,2) }}</th>
+                    </tr>
+                </tfoot>
+                @endif
             </table>
         </div>
-
 
     </div>
 </div>

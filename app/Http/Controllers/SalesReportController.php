@@ -25,37 +25,48 @@ class SalesReportController extends Controller
 
         /* ================= SALES REGISTER ================= */
         if ($tab === 'SR') {
-            $sales = SaleInvoice::with('account')
+            $sales = SaleInvoice::with(['account', 'items'])
                 ->whereBetween('date', [$from, $to])
                 ->get()
                 ->map(function ($sale) {
+
+                    $total = $sale->items->sum(function ($item) {
+                        return ($item->sale_price ?? $item->price) * $item->quantity;
+                    });
+
                     return (object)[
                         'date'     => $sale->date,
                         'invoice'  => $sale->invoice_no ?? $sale->id,
                         'customer' => $sale->account->name ?? '',
-                        'total'    => $sale->total_amount ?? 0,
+                        'total'    => $total,
                     ];
                 });
         }
 
         /* ================= SALES RETURN ================= */
         if ($tab === 'SRET') {
-            $returns = SaleReturn::with('account')
+            $returns = SaleReturn::with(['customer', 'items'])
                 ->whereBetween('return_date', [$from, $to])
                 ->get()
                 ->map(function ($ret) {
+
+                    $total = $ret->items->sum(function ($item) {
+                        return $item->qty * $item->price;
+                    });
+
                     return (object)[
                         'date'     => $ret->return_date,
                         'invoice'  => $ret->invoice_no ?? $ret->id,
                         'customer' => $ret->account->name ?? '',
-                        'total'    => $ret->total_amount ?? 0,
+                        'total'    => $total,
                     ];
                 });
         }
 
         /* ================= CUSTOMER WISE ================= */
         if ($tab === 'CW') {
-            $query = SaleInvoice::with('account')
+
+            $query = SaleInvoice::with(['account', 'items'])
                 ->whereBetween('date', [$from, $to]);
 
             if ($customerId) {
@@ -64,15 +75,38 @@ class SalesReportController extends Controller
 
             $customerWise = $query->get()
                 ->groupBy('account_id')
-                ->map(function ($rows) {
+                ->map(function ($sales) {
+
+                    $customerName = $sales->first()->account->name ?? 'Unknown Customer';
+
+                    $items = collect();
+
+                    foreach ($sales as $sale) {
+                        foreach ($sale->items as $item) {
+                            $qty   = $item->quantity ?? $item->qty ?? 0;
+                            $price = $item->sale_price ?? $item->price ?? 0;
+
+                            $items->push((object)[
+                                'invoice_date' => $sale->date,
+                                'invoice_no'   => $sale->invoice_no ?? $sale->id,
+                                'item_name'    => $item->product->name ?? 'N/A',
+                                'quantity'     => $qty,
+                                'rate'         => $price,
+                                'total'        => $qty * $price,
+                            ]);
+                        }
+                    }
+
                     return (object)[
-                        'customer' => $rows->first()->account->name ?? '',
-                        'count'    => $rows->count(),
-                        'total'    => $rows->sum('total_amount'),
+                        'customer_name' => $customerName,
+                        'items'         => $items,
+                        'total_qty'     => $items->sum('quantity'),
+                        'total_amount'  => $items->sum('total'),
                     ];
                 })
                 ->values();
         }
+
 
         $customers = ChartOfAccounts::where('account_type', 'customer')->get();
 

@@ -49,7 +49,7 @@ class PurchaseReportController extends Controller
 
         /* ================= PURCHASE RETURNS ================= */
         if ($tab === 'PR') {
-            $query = PurchaseReturn::with(['vendor','items.product'])
+            $query = PurchaseReturn::with(['vendor','items.item'])
                 ->whereBetween('return_date', [$from, $to]);
 
             if ($request->filled('vendor_id')) {
@@ -62,7 +62,7 @@ class PurchaseReportController extends Controller
                         'date'        => $return->return_date,
                         'return_no'   => $return->invoice_no,
                         'vendor_name' => $return->vendor->name ?? '',
-                        'item_name'   => $item->product->name ?? 'N/A',
+                        'item_name'   => $item->item->name ?? 'N/A',
                         'quantity'    => $item->quantity,
                         'rate'        => $item->price,
                         'total'       => $item->quantity * $item->price,
