@@ -201,7 +201,6 @@
                         <th>Invoice Date</th>
                         <th>Invoice No</th>
                         <th>Item</th>
-                        <th>Variation</th>
                         <th>Qty</th>
                         <th>Rate</th>
                         <th>Total</th>
@@ -218,7 +217,6 @@
                                 <td>{{ $item->invoice_date }}</td>
                                 <td>{{ $item->invoice_no }}</td>
                                 <td>{{ $item->item_name }}</td>
-                                <td>{{ $item->variation }}</td>
                                 <td>{{ $item->quantity }}</td>
                                 <td>{{ number_format($item->rate, 2) }}</td>
                                 <td>{{ number_format($item->total, 2) }}</td>
