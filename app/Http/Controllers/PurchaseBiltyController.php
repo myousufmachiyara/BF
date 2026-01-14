@@ -204,6 +204,25 @@ class PurchaseBiltyController extends Controller
         }
     }
 
+    public function destroy($id)
+    {
+        $invoice = PurchaseBilty::findOrFail($id);
+
+        // ✅ Check before looping
+        if ($invoice->attachments) {
+            foreach ($invoice->attachments as $attachment) {
+                Storage::disk('public')->delete($attachment->file_path);
+            }
+        }
+
+        $invoice->delete();
+
+        return redirect()
+            ->route('purchase_bilty.index')
+            ->with('success', 'Purchase Bilty Invoice deleted successfully.');
+    }
+
+
     public function print($id)
     {
         $bilty = PurchaseBilty::with([

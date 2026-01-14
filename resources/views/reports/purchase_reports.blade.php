@@ -7,6 +7,7 @@
         <li class="nav-item"><a class="nav-link {{ $tab=='PUR'?'active':'' }}" data-bs-toggle="tab" href="#PUR">Purchase Register</a></li>
         <li class="nav-item"><a class="nav-link {{ $tab=='PR'?'active':'' }}" data-bs-toggle="tab" href="#PR">Purchase Returns</a></li>
         <li class="nav-item"><a class="nav-link {{ $tab=='VWP'?'active':'' }}" data-bs-toggle="tab" href="#VWP">Vendor-wise Purchases</a></li>
+        <li class="nav-item"><a class="nav-link {{ $tab=='PB'?'active':'' }}" data-bs-toggle="tab" href="#PB">Purchase Bilty</a></li>
     </ul>
 
     <div class="tab-content mt-3">
@@ -59,7 +60,11 @@
                     @forelse($purchaseRegister as $pur)
                         <tr>
                             <td>{{ $pur->date }}</td>
-                            <td>{{ $pur->invoice_no }}</td>
+                            <td>
+                                <a href="{{ route('purchase_invoices.print', $pur->invoice_id) }}" target="_blank" class="text-primary fw-bold text-decoration-underline">
+                                    {{ $pur->invoice_no }}
+                                </a>
+                            </td>
                             <td>{{ $pur->vendor_name }}</td>
                             <td>{{ $pur->item_name }}</td>
                             <td>{{ $pur->quantity }}</td>
@@ -132,7 +137,11 @@
                     @forelse($purchaseReturns as $pr)
                         <tr>
                             <td>{{ $pr->date }}</td>
-                            <td>{{ $pr->return_no }}</td>
+                            <td>
+                                <a href="{{ route('purchase_return.print', $pr->return_id) }}" target="_blank" class="text-danger fw-bold text-decoration-underline">
+                                    {{ $pr->return_no }}
+                                </a>
+                            </td>
                             <td>{{ $pr->vendor_name }}</td>
                             <td>{{ $pr->item_name }}</td>
                             <td>{{ $pr->quantity }}</td>
@@ -209,7 +218,7 @@
                 <tbody>
                     @forelse($vendorWisePurchase as $vendorData)
                         <tr class="table-secondary">
-                            <td colspan="8"><strong>{{ $vendorData->vendor_name }}</strong></td>
+                            <td colspan="7"><strong>{{ $vendorData->vendor_name }}</strong></td>
                         </tr>
                         @foreach($vendorData->items as $item)
                             <tr>
@@ -223,21 +232,21 @@
                             </tr>
                         @endforeach
                         <tr class="fw-bold">
-                            <td colspan="5" class="text-end">Vendor Total</td>
+                            <td colspan="4" class="text-end">Vendor Total</td>
                             <td>{{ $vendorData->total_qty }}</td>
                             <td>-</td>
                             <td>{{ number_format($vendorData->total_amount, 2) }}</td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="8" class="text-center text-muted">No vendor purchase data found.</td>
+                            <td colspan="7" class="text-center text-muted">No vendor purchase data found.</td>
                         </tr>
                     @endforelse
                 </tbody>
                 @if(count($vendorWisePurchase))
                 <tfoot>
                     <tr class="fw-bold">
-                        <th colspan="5" class="text-end">Grand Total</th>
+                        <th colspan="4" class="text-end">Grand Total</th>
                         <th>{{ $vendorWisePurchase->sum('total_qty') }}</th>
                         <th>-</th>
                         <th>{{ number_format($vendorWisePurchase->sum('total_amount'), 2) }}</th>
@@ -246,6 +255,100 @@
                 @endif
             </table>
         </div>
+
+        {{-- PURCHASE BILTY REPORT --}}
+        <div id="PB" class="tab-pane fade {{ $tab=='PB'?'show active':'' }}">
+            <form method="GET" action="{{ route('reports.purchase') }}">
+                <input type="hidden" name="tab" value="PB">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-3">
+                        <label>Vendor</label>
+                        <select name="vendor_id" class="form-control">
+                            <option value="">-- All Vendors --</option>
+                            @foreach($vendors as $vendor)
+                                <option value="{{ $vendor->id }}" {{ request('vendor_id')==$vendor->id?'selected':'' }}>
+                                    {{ $vendor->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label>From Date</label>
+                        <input type="date" name="from_date" class="form-control" value="{{ $from }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label>To Date</label>
+                        <input type="date" name="to_date" class="form-control" value="{{ $to }}">
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary w-100">Filter</button>
+                    </div>
+                </div>
+            </form>
+
+            @php
+                $grandQty = $vendorWiseBilty->sum('total_qty');
+                $grandAmount = $vendorWiseBilty->sum('total_amount');
+            @endphp
+
+            <div class="mb-3 text-end">
+                <h5>Total Qty: <span class="text-primary">{{ $grandQty }}</span></h5>
+                <h3>Total Bilty Amount: <span class="text-success">{{ number_format($grandAmount,2) }}</span></h3>
+            </div>
+
+            <table class="table table-bordered table-striped">
+                <thead>
+                    <tr>
+                        <th>Vendor</th>
+                        <th>Bilty Date</th>
+                        <th>Ref No</th>
+                        <th>Item</th>
+                        <th>Qty</th>
+                        <th>Rate</th>
+                        <th>Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse($vendorWiseBilty as $vendorData)
+                        <tr class="table-secondary">
+                            <td colspan="7"><strong>{{ $vendorData->vendor_name }}</strong></td>
+                        </tr>
+                        @foreach($vendorData->items as $item)
+                            <tr>
+                                <td></td>
+                                <td>{{ $item->bilty_date }}</td>
+                                <td>{{ $item->ref_no }}</td>
+                                <td>{{ $item->item_name }}</td>
+                                <td>{{ $item->quantity .' '. $item->unit }}</td>
+                                <td>{{ number_format($item->rate,2) }}</td>
+                                <td>{{ number_format($item->total,2) }}</td>
+                            </tr>
+                        @endforeach
+                        <tr class="fw-bold">
+                            <td colspan="4" class="text-end">Vendor Total</td>
+                            <td>{{ $vendorData->total_qty }}</td>
+                            <td>-</td>
+                            <td>{{ number_format($vendorData->total_amount,2) }}</td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="7" class="text-center text-muted">No bilty data found.</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+                @if(count($vendorWiseBilty))
+                <tfoot>
+                    <tr class="fw-bold">
+                        <th colspan="4" class="text-end">Grand Total</th>
+                        <th>{{ $vendorWiseBilty->sum('total_qty') }}</th>
+                        <th>-</th>
+                        <th>{{ number_format($vendorWiseBilty->sum('total_amount'),2) }}</th>
+                    </tr>
+                </tfoot>
+                @endif
+            </table>
+        </div>
+
     </div>
 </div>
 @endsection

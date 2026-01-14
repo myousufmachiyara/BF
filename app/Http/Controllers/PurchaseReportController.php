@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseReturn;
+use App\Models\PurchaseBilty;
 use App\Models\ChartOfAccounts;
 use App\Models\Product;
 use Carbon\Carbon;
@@ -22,6 +23,7 @@ class PurchaseReportController extends Controller
         $purchaseRegister    = collect();
         $purchaseReturns     = collect();
         $vendorWisePurchase  = collect();
+        $vendorWiseBilty     = collect(); // New
 
         /* ================= PURCHASE REGISTER ================= */
         if ($tab === 'PUR') {
@@ -35,6 +37,7 @@ class PurchaseReportController extends Controller
             $purchaseRegister = $query->get()->flatMap(function ($invoice) {
                 return $invoice->items->map(function ($item) use ($invoice) {
                     return (object)[
+                        'invoice_id'  => $invoice->id, // ✅ REQUIRED
                         'date'        => $invoice->invoice_date,
                         'invoice_no'  => $invoice->bill_no ?? $invoice->invoice_no,
                         'vendor_name' => $invoice->vendor->name ?? '',
@@ -59,6 +62,7 @@ class PurchaseReportController extends Controller
             $purchaseReturns = $query->get()->flatMap(function ($return) {
                 return $return->items->map(function ($item) use ($return) {
                     return (object)[
+                        'return_id'   => $return->id, // ✅ REQUIRED    
                         'date'        => $return->return_date,
                         'return_no'   => $return->invoice_no,
                         'vendor_name' => $return->vendor->name ?? '',
@@ -73,7 +77,6 @@ class PurchaseReportController extends Controller
 
         /* ================= VENDOR-WISE PURCHASE ================= */
         if ($tab === 'VWP') {
-
             $query = PurchaseInvoice::with(['vendor','items.product'])
                 ->whereBetween('invoice_date', [$from, $to]);
 
@@ -112,6 +115,57 @@ class PurchaseReportController extends Controller
                 ->values();
         }
 
+        if ($tab === 'PB') {
+
+            $query = PurchaseBilty::with(['vendor','details.product','details.measurementUnit'])
+                ->whereBetween('bilty_date', [$from, $to]);
+
+            if ($request->filled('vendor_id')) {
+                $query->where('vendor_id', $request->vendor_id);
+            }
+
+            $vendorWiseBilty = $query->get()
+                ->groupBy('vendor_id')
+                ->map(function ($bilties) {
+
+                    $vendorName = $bilties->first()->vendor->name ?? 'Unknown Vendor';
+                    $items = collect();
+                    $totalQty = 0;
+                    $totalAmount = 0;
+
+                    foreach ($bilties as $bilty) {
+                        $totalBiltyQty = $bilty->details->sum('quantity');
+
+                        foreach ($bilty->details as $detail) {
+                            // Allocate bilty amount proportionally to item quantity
+                            $perUnitBilty = $bilty->bilty_amount / max($totalBiltyQty,1);
+                            $amount = $perUnitBilty * $detail->quantity;
+
+                            $items->push((object)[
+                                'bilty_date' => $bilty->bilty_date,
+                                'ref_no'     => $bilty->ref_no,
+                                'item_name'  => $detail->product->name ?? 'N/A',
+                                'quantity'   => $detail->quantity,
+                                'unit'       => $detail->measurementUnit->name ?? '',
+                                'rate'       => round($perUnitBilty,2),
+                                'total'      => round($amount,2),
+                            ]);
+
+                            $totalQty += $detail->quantity;
+                            $totalAmount += $amount;
+                        }
+                    }
+
+                    return (object)[
+                        'vendor_name'  => $vendorName,
+                        'items'        => $items,
+                        'total_qty'    => $totalQty,
+                        'total_amount' => $totalAmount,
+                    ];
+                })
+                ->values();
+        }
+
         return view('reports.purchase_reports', compact(
             'tab',
             'from',
@@ -119,7 +173,8 @@ class PurchaseReportController extends Controller
             'vendors',
             'purchaseRegister',
             'purchaseReturns',
-            'vendorWisePurchase'
+            'vendorWisePurchase',
+            'vendorWiseBilty'
         ));
     }
 }
