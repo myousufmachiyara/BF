@@ -20,12 +20,16 @@ class AccountsReportController extends Controller
         $reports = [
             'general_ledger'   => $this->generalLedger($accountId, $from, $to),
             'trial_balance'    => $this->trialBalance($from, $to),
+            'profit_loss'      => $this->profitLoss($from, $to),
+            'balance_sheet'    => $this->balanceSheet($from, $to),
+            'party_ledger'     => $this->partyLedger($from, $to, $accountId),
             'receivables'      => $this->receivables($from, $to),
             'payables'         => $this->payables($from, $to),
             'cash_book'        => $this->cashBook($from, $to),
             'bank_book'        => $this->bankBook($from, $to),
+            'journal_book'     => $this->journalBook($from, $to), // New
             'expense_analysis' => $this->expenseAnalysis($from, $to),
-            // Other reports can follow the same pattern...
+            'cash_flow'        => $this->cashFlow($from, $to),    // New
         ];
 
         return view('reports.accounts_reports', compact('reports', 'from', 'to', 'chartOfAccounts'));
@@ -223,6 +227,162 @@ class AccountsReportController extends Controller
             ];
         });
     }
-    
-    // ... generalLedger and expenseAnalysis remain similar but should use the $this->fmt() helper.
+
+    /* ================= GENERAL LEDGER ================= */
+    private function generalLedger($accountId, $from, $to)
+    {
+        if (!$accountId) return collect();
+
+        $account = ChartOfAccounts::find($accountId);
+        if (!$account) return collect();
+
+        // 1. Calculate Opening Balance (COA Initial + Vouchers before 'from' date)
+        $opData = $this->getAccountBalance($accountId, null, null, Carbon::parse($from)->subDay()->toDateString());
+        
+        // Determine starting balance based on account nature
+        $isDebitNature = in_array($account->account_type, ['asset', 'expense', 'customer', 'cash', 'bank']);
+        $runningBal = $isDebitNature ? ($opData['debit'] - $opData['credit']) : ($opData['credit'] - $opData['debit']);
+
+        $rows = collect();
+        
+        // Add Opening Balance Row
+        $rows->push([
+            $from,
+            $account->name,
+            "Opening Balance",
+            $this->fmt($opData['debit']),
+            $this->fmt($opData['credit']),
+            $this->fmt($runningBal)
+        ]);
+
+        // 2. Get Voucher movements for the period
+        $vouchers = Voucher::whereBetween('date', [$from, $to])
+            ->where(fn($q) => $q->where('ac_dr_sid', $accountId)->orWhere('ac_cr_sid', $accountId))
+            ->orderBy('date')
+            ->get();
+
+        foreach ($vouchers as $v) {
+            $dr = ($v->ac_dr_sid == $accountId) ? $v->amount : 0;
+            $cr = ($v->ac_cr_sid == $accountId) ? $v->amount : 0;
+            
+            if ($isDebitNature) {
+                $runningBal += ($dr - $cr);
+            } else {
+                $runningBal += ($cr - $dr);
+            }
+
+            $rows->push([
+                $v->date,
+                $account->name,
+                "Voucher #{$v->id}",
+                $this->fmt($dr),
+                $this->fmt($cr),
+                $this->fmt($runningBal)
+            ]);
+        }
+
+        return $rows;
+    }
+
+    /* ================= EXPENSE ANALYSIS ================= */
+    private function expenseAnalysis($from, $to)
+    {
+        return ChartOfAccounts::where('account_type', 'expense')
+            ->get()
+            ->map(function ($a) use ($from, $to) {
+                // Expenses are usually Debit - Credit
+                $bal = $this->getAccountBalance($a->id, $from, $to);
+                $total = $bal['debit'] - $bal['credit'];
+                
+                return [$a->name, $this->fmt($total)];
+            })->filter(fn($r) => (float)str_replace(',', '', $r[1]) != 0);
+    }
+
+    /* ================= JOURNAL / DAY BOOK ================= */
+    private function journalBook($from, $to)
+    {
+        return Voucher::with(['debitAccount', 'creditAccount'])
+            ->whereBetween('date', [$from, $to])
+            ->orderBy('date')
+            ->get()
+            ->map(function ($v) {
+                return [
+                    $v->date,
+                    $v->debitAccount->name ?? 'N/A',
+                    $v->creditAccount->name ?? 'N/A',
+                    $this->fmt($v->amount)
+                ];
+            });
+    }
+
+    /* ================= CASH FLOW (Simplified) ================= */
+    private function cashFlow($from, $to)
+    {
+        // Cash Flow = Cash/Bank Inflows - Outflows
+        $cashBankIds = ChartOfAccounts::whereIn('account_type', ['cash', 'bank'])->pluck('id');
+
+        $inflow = Voucher::whereIn('ac_dr_sid', $cashBankIds)
+            ->whereBetween('date', [$from, $to])
+            ->sum('amount');
+
+        $outflow = Voucher::whereIn('ac_cr_sid', $cashBankIds)
+            ->whereBetween('date', [$from, $to])
+            ->sum('amount');
+
+        return [
+            ['Total Cash Inflow (Receipts)', $this->fmt($inflow)],
+            ['Total Cash Outflow (Payments)', $this->fmt($outflow)],
+            ['Net Increase/Decrease in Cash', $this->fmt($inflow - $outflow)]
+        ];
+    }
+    /* ================= PROFIT & LOSS ================= */
+    private function profitLoss($from, $to)
+    {
+        $revenueIds = ChartOfAccounts::where('account_type', 'revenue')->pluck('id');
+        $expenseIds = ChartOfAccounts::where('account_type', 'expense')->pluck('id');
+
+        $revenue = Voucher::whereIn('ac_cr_sid', $revenueIds)->whereBetween('date', [$from, $to])->sum('amount') 
+                 - Voucher::whereIn('ac_dr_sid', $revenueIds)->whereBetween('date', [$from, $to])->sum('amount');
+
+        $expenses = Voucher::whereIn('ac_dr_sid', $expenseIds)->whereBetween('date', [$from, $to])->sum('amount')
+                  - Voucher::whereIn('ac_cr_sid', $expenseIds)->whereBetween('date', [$from, $to])->sum('amount');
+
+        return [
+            ['Total Revenue', $this->fmt($revenue)],
+            ['Total Expenses', $this->fmt($expenses)],
+            ['Net Profit/Loss', $this->fmt($revenue - $expenses)]
+        ];
+    }
+
+    /* ================= BALANCE SHEET ================= */
+    private function balanceSheet($from, $to)
+    {
+        $trial = $this->trialBalance($from, $to);
+        $assets = collect();
+        $liabilities = collect();
+
+        foreach ($trial as $r) {
+            $type = $r[1];
+            $debit = (float)str_replace(',', '', $r[2]);
+            $credit = (float)str_replace(',', '', $r[3]);
+            
+            if (in_array($type, ['asset', 'customer', 'cash', 'bank'])) {
+                $val = $debit - $credit;
+                if ($val != 0) $assets->push([$r[0], $this->fmt($val)]);
+            } elseif (in_array($type, ['liability', 'vendor', 'equity'])) {
+                $val = $credit - $debit;
+                if ($val != 0) $liabilities->push([$r[0], $this->fmt($val)]);
+            }
+        }
+
+        $max = max($assets->count(), $liabilities->count());
+        $rows = [];
+        for ($i = 0; $i < $max; $i++) {
+            $rows[] = [
+                $assets[$i][0] ?? '', $assets[$i][1] ?? '',
+                $liabilities[$i][0] ?? '', $liabilities[$i][1] ?? ''
+            ];
+        }
+        return $rows;
+    }
 }
