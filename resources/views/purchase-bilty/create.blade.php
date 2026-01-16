@@ -46,15 +46,18 @@
             </div>
 
             <div class="col-md-2 mb-3">
-              <label>Purchase #</label>
-               <select name="bilty_purchase_id" class="form-control select2-js">
-                <option value="">Select Purchase #</option>
-                @foreach ($purchaseInvoices as $invoice)
-                  <option value="{{ $invoice->id }}">
-                    {{ $invoice->invoice_no }}
-                  </option>
-                @endforeach
-              </select>
+              <label>Purchase #</labels>
+              <div class="input-group">
+                <select name="bilty_purchase_id" id="bilty_purchase_id" class="form-control select2-js">
+                  <option value="">Select Purchase #</option>
+                  @foreach ($purchaseInvoices as $invoice)
+                    <option value="{{ $invoice->id }}">{{ $invoice->invoice_no }}</option>
+                  @endforeach
+                </select>
+                <button type="button" class="btn btn-info" onclick="fetchInvoiceProducts()">
+                  <i class="fas fa-sync"></i>
+                </button>
+              </div>
             </div>
 
             <div class="col-md-3 mb-3">
@@ -272,10 +275,63 @@
       netTotal();
   });
 
-
   function formatNumberWithCommas(x) {
     return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   }
+
+  function fetchInvoiceProducts() {
+    let invoiceId = $('#bilty_purchase_id').val();
+    if (!invoiceId) {
+      alert("Please select a Purchase Invoice first.");
+      return;
+    }
+
+    if (!confirm("This will clear current items. Continue?")) return;
+
+    // Show loading state
+    const btn = event.currentTarget;
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+    $.ajax({
+        url: `/get-purchase-items/${invoiceId}`,
+        method: 'GET',
+        success: function(items) {
+            // 1. Clear the table
+            $('#BiltyItemTable').empty();
+            index = 1; // Reset global index
+
+            // 2. Loop through items and add rows
+            if (items.length === 0) {
+                alert("No items found in this invoice.");
+                addNewRow(); // Add one empty row
+            } else {
+                items.forEach((item) => {
+                    // Reuse your existing logic to add a row
+                    addNewRow(); 
+                    let currentRow = index - 1;
+
+                    // 3. Fill the values
+                    $(`#item_name${currentRow}`).val(item.item_id).trigger('change');
+                    $(`#bilty_qty${currentRow}`).val(item.quantity);
+                    
+                    // Note: onItemNameChange is triggered by .trigger('change'), 
+                    // which sets the unit and price automatically based on product defaults.
+                    // If you want to use the specific price from the invoice:
+                    // $(`#bilty_price${currentRow}`).val(item.price);
+                    
+                    rowTotal(currentRow);
+                });
+            }
+        },
+        error: function() {
+          alert("Error fetching items.");
+        },
+        complete: function() {
+          btn.innerHTML = originalHtml;
+        }
+  });
+}
 </script>
 
 @endsection

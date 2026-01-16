@@ -40,6 +40,9 @@ Route::middleware(['auth'])->group(function () {
     //Purchase Helper
     Route::get('/product/{product}/invoices', [PurchaseInvoiceController::class, 'getProductInvoices']);
 
+    //Bilty Helper
+    Route::get('/get-purchase-items/{id}', [App\Http\Controllers\PurchaseBiltyController::class, 'getInvoiceItems']);
+
     // Common Modules
     $modules = [
         // User Management

@@ -223,6 +223,12 @@ class PurchaseBiltyController extends Controller
     }
 
 
+    public function getInvoiceItems($id) {
+        // Fetch items with product relation to get unit and bilty charges
+        $items = \App\Models\PurchaseInvoiceItem::where('purchase_invoice_id', $id)->get();
+        return response()->json($items);
+    }
+
     public function print($id)
     {
         $bilty = PurchaseBilty::with([
