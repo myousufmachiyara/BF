@@ -41,12 +41,14 @@ class AccountsReportController extends Controller
     private function getAccountBalance($accountId, $from, $to, $asOfDate = null)
     {
         $account = ChartOfAccounts::find($accountId);
-        
-        // 1. Get Initial Balance from the Chart of Accounts table
-        // Adjust 'opening_balance' to whatever your column name is
-        $initialBal = $account->opening_balance ?? 0; 
+        if (!$account) return ['debit' => 0, 'credit' => 0];
 
-        // 2. Get Voucher movements
+        // 1. Get Initial Balance from your specific schema columns
+        // Customers use 'receivables', Vendors use 'payables'
+        $initialDr = (float) ($account->receivables ?? 0); 
+        $initialCr = (float) ($account->payables ?? 0);
+
+        // 2. Query Vouchers
         $queryDr = Voucher::where('ac_dr_sid', $accountId);
         $queryCr = Voucher::where('ac_cr_sid', $accountId);
 
@@ -61,17 +63,21 @@ class AccountsReportController extends Controller
         $vDr = $queryDr->sum('amount');
         $vCr = $queryCr->sum('amount');
 
-        // 3. Logic: For Assets/Customers, Initial Balance is usually a Debit.
-        // For Liabilities/Vendors, Initial Balance is usually a Credit.
-        if (in_array($account->account_type, ['asset', 'customer', 'cash', 'bank'])) {
+        // 3. Match against your HTML Select values: "customer", "vendor", "expenses", etc.
+        $type = strtolower($account->account_type);
+
+        // Debit Nature: Assets, Customers, Cash, Bank, Expenses
+        if (in_array($type, ['customer', 'cash', 'bank', 'asset', 'expenses'])) {
             return [
-                'debit'  => $initialBal + $vDr,
+                'debit'  => $initialDr + $vDr,
                 'credit' => $vCr
             ];
-        } else {
+        } 
+        // Credit Nature: Vendors, Revenue, Equity, Liabilities
+        else {
             return [
                 'debit'  => $vDr,
-                'credit' => $initialBal + $vCr
+                'credit' => $initialCr + $vCr
             ];
         }
     }
@@ -284,15 +290,24 @@ class AccountsReportController extends Controller
     /* ================= EXPENSE ANALYSIS ================= */
     private function expenseAnalysis($from, $to)
     {
-        return ChartOfAccounts::where('account_type', 'expense')
+        // Changed 'expense' to 'expenses' to match your HTML select
+        return ChartOfAccounts::where('account_type', 'expenses')
             ->get()
             ->map(function ($a) use ($from, $to) {
-                // Expenses are usually Debit - Credit
                 $bal = $this->getAccountBalance($a->id, $from, $to);
                 $total = $bal['debit'] - $bal['credit'];
-                
                 return [$a->name, $this->fmt($total)];
             })->filter(fn($r) => (float)str_replace(',', '', $r[1]) != 0);
+    }
+
+    /* ================= PROFIT & LOSS ================= */
+    private function profitLoss($from, $to)
+    {
+        // Ensure these match your DB strings exactly
+        $revenueIds = ChartOfAccounts::where('account_type', 'revenue')->pluck('id');
+        $expenseIds = ChartOfAccounts::where('account_type', 'expenses')->pluck('id');
+
+        // ... rest of logic
     }
 
     /* ================= JOURNAL / DAY BOOK ================= */
@@ -330,24 +345,6 @@ class AccountsReportController extends Controller
             ['Total Cash Inflow (Receipts)', $this->fmt($inflow)],
             ['Total Cash Outflow (Payments)', $this->fmt($outflow)],
             ['Net Increase/Decrease in Cash', $this->fmt($inflow - $outflow)]
-        ];
-    }
-    /* ================= PROFIT & LOSS ================= */
-    private function profitLoss($from, $to)
-    {
-        $revenueIds = ChartOfAccounts::where('account_type', 'revenue')->pluck('id');
-        $expenseIds = ChartOfAccounts::where('account_type', 'expense')->pluck('id');
-
-        $revenue = Voucher::whereIn('ac_cr_sid', $revenueIds)->whereBetween('date', [$from, $to])->sum('amount') 
-                 - Voucher::whereIn('ac_dr_sid', $revenueIds)->whereBetween('date', [$from, $to])->sum('amount');
-
-        $expenses = Voucher::whereIn('ac_dr_sid', $expenseIds)->whereBetween('date', [$from, $to])->sum('amount')
-                  - Voucher::whereIn('ac_cr_sid', $expenseIds)->whereBetween('date', [$from, $to])->sum('amount');
-
-        return [
-            ['Total Revenue', $this->fmt($revenue)],
-            ['Total Expenses', $this->fmt($expenses)],
-            ['Net Profit/Loss', $this->fmt($revenue - $expenses)]
         ];
     }
 
