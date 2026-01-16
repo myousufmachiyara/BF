@@ -146,19 +146,19 @@ class AccountsReportController extends Controller
     {
         return ChartOfAccounts::where('account_type', 'customer')->get()
             ->map(function ($a) use ($to) {
-                // Change: Pass null for $from/to and use $to as the 'asOfDate'
+                // Calculate balance from start of time up to the 'To' date
                 $bal = $this->getAccountBalance($a->id, null, null, $to);
                 $total = $bal['debit'] - $bal['credit'];
                 return [$a->name, $this->fmt($total)];
             })->filter(fn($r) => (float)str_replace(',', '', $r[1]) != 0);
     }
 
-    /* ================= PAYABLES (Fixed) ================= */
+    /* ================= PAYABLES (FIXED) ================= */
     private function payables($from, $to)
     {
         return ChartOfAccounts::where('account_type', 'vendor')->get()
             ->map(function ($a) use ($to) {
-                // Change: Pass null for $from/to and use $to as the 'asOfDate'
+                // Calculate balance from start of time up to the 'To' date
                 $bal = $this->getAccountBalance($a->id, null, null, $to);
                 $total = $bal['credit'] - $bal['debit'];
                 return [$a->name, $this->fmt($total)];
