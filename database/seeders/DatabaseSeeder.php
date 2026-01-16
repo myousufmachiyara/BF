@@ -86,32 +86,32 @@ class DatabaseSeeder extends Seeder
         // ---------------------
         // CHART OF ACCOUNTS
         // ---------------------
-        $coaData = [
-            ['account_code' => 'A001', 'name' => 'Cash in Hand', 'account_type' => 'cash', 'shoa_id' => 1, 'receivables' => 0, 'payables' => 0],
-            ['account_code' => 'A002', 'name' => 'Bank ABC', 'account_type' => 'bank', 'shoa_id' => 2, 'receivables' => 0, 'payables' => 0],
-            ['account_code' => 'A003', 'name' => 'Customer A', 'account_type' => 'customer', 'shoa_id' => 3, 'receivables' => 1000, 'payables' => 0],
-            ['account_code' => 'A004', 'name' => 'Inventory - Raw Material', 'account_type' => 'asset', 'shoa_id' => 4, 'receivables' => 0, 'payables' => 0],
-            ['account_code' => 'L001', 'name' => 'Vendor X', 'account_type' => 'vendor', 'shoa_id' => 5, 'receivables' => 0, 'payables' => 500],
-            ['account_code' => 'L002', 'name' => 'Bank Loan', 'account_type' => 'liability', 'shoa_id' => 6, 'receivables' => 0, 'payables' => 10000],
-            ['account_code' => 'E001', 'name' => 'Owner Capital', 'account_type' => 'equity', 'shoa_id' => 7, 'receivables' => 0, 'payables' => 0],
-            ['account_code' => 'R001', 'name' => 'Sales Income', 'account_type' => 'revenue', 'shoa_id' => 8, 'receivables' => 0, 'payables' => 0],
-            ['account_code' => 'EX001', 'name' => 'Purchase of Goods', 'account_type' => 'expenses', 'shoa_id' => 9, 'receivables' => 0, 'payables' => 0],
-            ['account_code' => 'EX002', 'name' => 'Salary Expense', 'account_type' => 'expenses', 'shoa_id' => 10, 'receivables' => 0, 'payables' => 0],
-            ['account_code' => 'EX003', 'name' => 'Rent Expense', 'account_type' => 'expenses', 'shoa_id' => 11, 'receivables' => 0, 'payables' => 0],
-            ['account_code' => 'EX004', 'name' => 'Utility Expense', 'account_type' => 'expenses', 'shoa_id' => 12, 'receivables' => 0, 'payables' => 0],
-        ];
+        // $coaData = [
+        //     ['account_code' => 'A001', 'name' => 'Cash in Hand', 'account_type' => 'cash', 'shoa_id' => 1, 'receivables' => 0, 'payables' => 0],
+        //     ['account_code' => 'A002', 'name' => 'Bank ABC', 'account_type' => 'bank', 'shoa_id' => 2, 'receivables' => 0, 'payables' => 0],
+        //     ['account_code' => 'A003', 'name' => 'Customer A', 'account_type' => 'customer', 'shoa_id' => 3, 'receivables' => 1000, 'payables' => 0],
+        //     ['account_code' => 'A004', 'name' => 'Inventory - Raw Material', 'account_type' => 'asset', 'shoa_id' => 4, 'receivables' => 0, 'payables' => 0],
+        //     ['account_code' => 'L001', 'name' => 'Vendor X', 'account_type' => 'vendor', 'shoa_id' => 5, 'receivables' => 0, 'payables' => 500],
+        //     ['account_code' => 'L002', 'name' => 'Bank Loan', 'account_type' => 'liability', 'shoa_id' => 6, 'receivables' => 0, 'payables' => 10000],
+        //     ['account_code' => 'E001', 'name' => 'Owner Capital', 'account_type' => 'equity', 'shoa_id' => 7, 'receivables' => 0, 'payables' => 0],
+        //     ['account_code' => 'R001', 'name' => 'Sales Income', 'account_type' => 'revenue', 'shoa_id' => 8, 'receivables' => 0, 'payables' => 0],
+        //     ['account_code' => 'EX001', 'name' => 'Purchase of Goods', 'account_type' => 'expenses', 'shoa_id' => 9, 'receivables' => 0, 'payables' => 0],
+        //     ['account_code' => 'EX002', 'name' => 'Salary Expense', 'account_type' => 'expenses', 'shoa_id' => 10, 'receivables' => 0, 'payables' => 0],
+        //     ['account_code' => 'EX003', 'name' => 'Rent Expense', 'account_type' => 'expenses', 'shoa_id' => 11, 'receivables' => 0, 'payables' => 0],
+        //     ['account_code' => 'EX004', 'name' => 'Utility Expense', 'account_type' => 'expenses', 'shoa_id' => 12, 'receivables' => 0, 'payables' => 0],
+        // ];
 
-        foreach ($coaData as $data) {
-            ChartOfAccounts::create(array_merge($data, [
-                'opening_date' => $now,
-                'credit_limit' => 0,
-                'remarks' => null,
-                'address' => null,
-                'phone_no' => null,
-                'created_by' => $userId,
-                'updated_by' => $userId,
-            ]));
-        }
+        // foreach ($coaData as $data) {
+        //     ChartOfAccounts::create(array_merge($data, [
+        //         'opening_date' => $now,
+        //         'credit_limit' => 0,
+        //         'remarks' => null,
+        //         'address' => null,
+        //         'phone_no' => null,
+        //         'created_by' => $userId,
+        //         'updated_by' => $userId,
+        //     ]));
+        // }
 
         // ---------------------
         // Measurement Units
@@ -121,6 +121,7 @@ class DatabaseSeeder extends Seeder
             ['id' => 2, 'name' => 'Carton', 'shortcode' => 'ct'],
             ['id' => 3, 'name' => 'Set', 'shortcode' => 'set'],
             ['id' => 4, 'name' => 'Pair', 'shortcode' => 'pair'],
+            ['id' => 5, 'name' => 'Yards', 'shortcode' => 'yrds'],
         ]);
 
         // ---------------------
