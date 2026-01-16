@@ -144,25 +144,22 @@ class AccountsReportController extends Controller
     /* ================= RECEIVABLES ================= */
     private function receivables($from, $to)
     {
-        // Strictly filter by 'customer' account type
         return ChartOfAccounts::where('account_type', 'customer')->get()
-            ->map(function ($a) use ($from, $to) {
-                $bal = $this->getAccountBalance($a->id, $from, $to, $to);
-                // Customers: Balance = Total Dr - Total Cr
+            ->map(function ($a) use ($to) {
+                // Change: Pass null for $from/to and use $to as the 'asOfDate'
+                $bal = $this->getAccountBalance($a->id, null, null, $to);
                 $total = $bal['debit'] - $bal['credit'];
                 return [$a->name, $this->fmt($total)];
             })->filter(fn($r) => (float)str_replace(',', '', $r[1]) != 0);
     }
 
-    /* ================= PAYABLES ================= */
+    /* ================= PAYABLES (Fixed) ================= */
     private function payables($from, $to)
     {
-        // Strictly filter by 'vendor' account type. 
-        // Your "Opening Stock" account should be type 'equity', so it will be ignored here.
         return ChartOfAccounts::where('account_type', 'vendor')->get()
-            ->map(function ($a) use ($from, $to) {
-                $bal = $this->getAccountBalance($a->id, $from, $to, $to);
-                // Vendors: Balance = Total Cr - Total Dr
+            ->map(function ($a) use ($to) {
+                // Change: Pass null for $from/to and use $to as the 'asOfDate'
+                $bal = $this->getAccountBalance($a->id, null, null, $to);
                 $total = $bal['credit'] - $bal['debit'];
                 return [$a->name, $this->fmt($total)];
             })->filter(fn($r) => (float)str_replace(',', '', $r[1]) != 0);
