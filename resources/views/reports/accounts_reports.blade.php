@@ -140,6 +140,7 @@
                         </thead>
 
                         <tbody>
+                            @php $totalAmount = 0; @endphp {{-- INITIALIZE HERE --}}
                             @forelse ($reports[$key] ?? [] as $row)
                                 <tr>
                                     @foreach ($row as $col)
