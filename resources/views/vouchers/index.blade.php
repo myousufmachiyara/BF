@@ -39,7 +39,9 @@
                   <td class="actions">
                     <a class="text-success" href="{{ route('vouchers.print', ['type' => $type, 'id' => $row->id]) }}"><i class="fas fa-print"></i></a>
                     <a class="text-primary modal-with-form" onclick="getVoucherDetails({{ $row->id }})" href="#updateModal"><i class="fas fa-edit"></i></a>
-                    <a class="btn btn-link p-0 m-0 text-danger" onclick="setDeleteId({{ $row->id }})" href="#deleteModal"><i class="fas fa-trash-alt"></i></a>
+                    <a class="btn btn-link p-0 m-0 text-danger modal-with-form"  onclick="setDeleteId({{ $row->id }})" href="#deleteModal">
+                      <i class="fas fa-trash-alt"></i>
+                    </a>                  
                   </td>
                 </tr>
               @endforeach
