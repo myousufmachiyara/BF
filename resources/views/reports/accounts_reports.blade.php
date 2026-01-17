@@ -172,7 +172,7 @@
 
                         {{-- ================= TOTAL FOOTER ================= --}}
                         @if (($key === 'receivables' || $key === 'payables') && count($reports[$key] ?? []) > 0)
-                            <tfoot class="table-primary">
+                            <tfoot class="table-secondary">
                                 <tr>
                                     <th>TOTAL</th>
                                     <th class="text-end">{{ number_format($totalAmount, 2) }}</th>
