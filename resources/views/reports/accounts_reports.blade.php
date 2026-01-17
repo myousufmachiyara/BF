@@ -140,13 +140,27 @@
                         </thead>
 
                         <tbody>
-                            @php $totalAmount = 0; @endphp {{-- INITIALIZE HERE --}}
+                            @php $totalAmount = 0; @endphp 
+
                             @forelse ($reports[$key] ?? [] as $row)
                                 <tr>
+                                    @php $colIndex = 0; @endphp {{-- Reset index for every new row --}}
                                     @foreach ($row as $col)
-                                        <td class="{{ is_numeric(str_replace(',', '', $col)) ? 'text-end' : '' }}">
+                                        @php 
+                                            // Clean the value for calculation
+                                            $numericVal = is_numeric($col) ? $col : (is_string($col) ? str_replace(',', '', $col) : 0);
+                                            
+                                            // Logic for Receivables/Payables: sum the 2nd column (index 1)
+                                            if (($key === 'receivables' || $key === 'payables') && $colIndex === 1) {
+                                                $totalAmount += is_numeric($numericVal) ? (float)$numericVal : 0;
+                                            }
+                                        @endphp
+
+                                        <td class="{{ is_numeric($numericVal) ? 'text-end' : '' }}">
                                             {{ is_numeric($col) ? number_format($col, 2) : $col }}
                                         </td>
+
+                                        @php $colIndex++; @endphp {{-- Move to next column --}}
                                     @endforeach
                                 </tr>
                             @empty
@@ -155,6 +169,7 @@
                                 </tr>
                             @endforelse
                         </tbody>
+
                         {{-- ================= TOTAL FOOTER ================= --}}
                         @if (($key === 'receivables' || $key === 'payables') && count($reports[$key] ?? []) > 0)
                             <tfoot class="table-dark">
@@ -166,7 +181,6 @@
                         @endif
                     </table>
                 </div>
-
             </div>
             @endforeach
         </div>
