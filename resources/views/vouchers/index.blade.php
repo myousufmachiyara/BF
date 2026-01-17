@@ -191,10 +191,17 @@
             <h2 class="card-title">Delete Voucher</h2>
           </header>
           <div class="card-body">
-            <p>Are you sure you want to delete this voucher?</p>
+            <div class="modal-wrapper">
+              <div class="modal-icon">
+                <i class="fas fa-exclamation-triangle"></i>
+              </div>
+              <div class="modal-text">
+                <p>Are you sure you want to delete this voucher? This action cannot be undone.</p>
+              </div>
+            </div>
           </div>
           <footer class="card-footer text-end">
-            <button type="submit" class="btn btn-danger">Delete</button>
+            <button type="submit" class="btn btn-danger">Confirm Delete</button>
             <button class="btn btn-default modal-dismiss">Cancel</button>
           </footer>
         </form>
@@ -205,23 +212,25 @@
 </div>
 
 <script>
-function getVoucherDetails(id) {
-    document.getElementById('updateForm').action = `/vouchers/{{ $type }}/${id}`;
-    fetch(`/vouchers/{{ $type }}/${id}`)
-        .then(res => res.json())
-        .then(data => {
-            document.getElementById('update_id').value = id;
-            document.getElementById('update_id_hidden').value = id;
-            document.getElementById('update_date').value = data.date;
-            $('#update_ac_dr_sid').val(data.ac_dr_sid).trigger('change');
-            $('#update_ac_cr_sid').val(data.ac_cr_sid).trigger('change');
-            document.getElementById('update_amount').value = data.amount;
-            document.getElementById('update_remarks').value = data.remarks;
-        });
-}
+  function getVoucherDetails(id) {
+      document.getElementById('updateForm').action = `/vouchers/{{ $type }}/${id}`;
+      fetch(`/vouchers/{{ $type }}/${id}`)
+          .then(res => res.json())
+          .then(data => {
+              document.getElementById('update_id').value = id;
+              document.getElementById('update_id_hidden').value = id;
+              document.getElementById('update_date').value = data.date;
+              $('#update_ac_dr_sid').val(data.ac_dr_sid).trigger('change');
+              $('#update_ac_cr_sid').val(data.ac_cr_sid).trigger('change');
+              document.getElementById('update_amount').value = data.amount;
+              document.getElementById('update_remarks').value = data.remarks;
+          });
+  }
 
-function setDeleteId(id) {
-  document.getElementById('deleteForm').action = `/vouchers/{{ $type }}/${id}`;
-}
+  function setDeleteId(id) {
+      // We use the blade variable {{ $type }} to match your route structure: /vouchers/{type}/{id}
+      const deleteUrl = `/vouchers/{{ $type }}/${id}`;
+      document.getElementById('deleteForm').action = deleteUrl;
+  }
 </script>
 @endsection
