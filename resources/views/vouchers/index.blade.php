@@ -201,7 +201,7 @@
                 <p>Are you sure you want to delete this voucher? This action cannot be undone.</p>
               </div>
             </div>
-            <footer class="card-footer text-end">
+            <footer class="card-footer text-end b-none">
               <button type="submit" class="btn btn-danger">Confirm Delete</button>
               <button class="btn btn-default modal-dismiss">Cancel</button>
             </footer>
