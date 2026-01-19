@@ -112,7 +112,7 @@ class SalesReportController extends Controller
                 ->values();
         }
 
-        /* ================= PROFIT REPORT (Optimized with Caching) ================= */
+        /* ================= PROFIT REPORT (Synced with Inventory Logic) ================= */
         if ($tab === 'PR') {
             $sales = SaleInvoice::with(['account', 'items'])
                 ->whereBetween('date', [$from, $to])
@@ -125,33 +125,47 @@ class SalesReportController extends Controller
                         $pid = $item->product_id;
                         $invoiceRevenue += ($item->sale_price ?? 0) * $item->quantity;
 
-                        // Cache the Landed Cost for each product to avoid heavy SQL in loops
-                        $avgLandedRate = \Cache::remember("avg_cost_prod_{$pid}", 86400, function () use ($pid) {
-                            // 1. Purchase Rate logic
-                            $pStats = PurchaseInvoiceItem::where('item_id', $pid)
+                        // Using Cache to keep the report fast
+                        $finalRate = \Cache::remember("landed_cost_prod_{$pid}", 86400, function () use ($pid) {
+                            
+                            /* 1. PURCHASE RATE (Average) */
+                            $pStats = \App\Models\PurchaseInvoiceItem::where('item_id', $pid)
                                 ->whereHas('invoice', fn ($q) => $q->whereNull('deleted_at'))
                                 ->selectRaw('SUM(quantity * price) as v, SUM(quantity) as q')
                                 ->first();
                             $purchaseRate = ($pStats && $pStats->q > 0) ? ($pStats->v / $pStats->q) : 0;
 
-                            // 2. Bilty Rate logic
-                            $bTotal = PurchaseBiltyDetail::where('item_id', $pid)
-                                ->join('purchase_bilty', fn($j) => $j->on('purchase_bilty.id','purchase_bilty_details.bilty_id')->whereNull('deleted_at'))
-                                ->sum(\DB::raw('(purchase_bilty.bilty_amount / (SELECT SUM(quantity) FROM purchase_bilty_details d WHERE d.bilty_id = purchase_bilty.id)) * purchase_bilty_details.quantity'));
+                            /* 2. BILTY COST (Exactly as per Inventory Report) */
+                            $biltyTotal = \App\Models\PurchaseBiltyDetail::where('purchase_bilty_details.item_id', $pid)
+                                ->join('purchase_bilty', function ($join) {
+                                    $join->on('purchase_bilty.id', '=', 'purchase_bilty_details.bilty_id')
+                                        ->whereNull('purchase_bilty.deleted_at');
+                                })
+                                ->sum(\DB::raw('
+                                    (purchase_bilty.bilty_amount / 
+                                        (SELECT SUM(quantity) 
+                                        FROM purchase_bilty_details d 
+                                        WHERE d.bilty_id = purchase_bilty.id)
+                                    ) * purchase_bilty_details.quantity
+                                '));
 
-                            $bQty = PurchaseBiltyDetail::where('item_id', $pid)
-                                ->join('purchase_bilty', fn($j) => $j->on('purchase_bilty.id','purchase_bilty_details.bilty_id')->whereNull('deleted_at'))
-                                ->sum('quantity');
+                            $biltyQty = \App\Models\PurchaseBiltyDetail::where('purchase_bilty_details.item_id', $pid)
+                                ->join('purchase_bilty', function ($join) {
+                                    $join->on('purchase_bilty.id', '=', 'purchase_bilty_details.bilty_id')
+                                        ->whereNull('purchase_bilty.deleted_at');
+                                })
+                                ->sum('purchase_bilty_details.quantity');
 
-                            $biltyRate = ($bQty > 0) ? ($bTotal / $bQty) : 0;
+                            $biltyRate = ($biltyQty > 0) ? ($biltyTotal / $biltyQty) : 0;
 
                             return $purchaseRate + $biltyRate;
                         });
 
-                        $invoiceCost += ($avgLandedRate * $item->quantity);
+                        $invoiceCost += ($finalRate * $item->quantity);
                     }
 
                     $netRevenue = $invoiceRevenue - ($sale->discount ?? 0);
+                    
                     return (object)[
                         'date'     => $sale->date,
                         'invoice'  => $sale->invoice_no,
