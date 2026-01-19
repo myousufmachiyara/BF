@@ -112,44 +112,34 @@ class SalesReportController extends Controller
                 ->values();
         }
 
-        /* ================= PROFIT REPORT (Synced with Inventory Logic) ================= */
+        /* ================= PROFIT REPORT (Synced + Customization Costing) ================= */
         if ($tab === 'PR') {
-            $sales = SaleInvoice::with(['account', 'items'])
+            $sales = \App\Models\SaleInvoice::with(['account', 'items.customizations'])
                 ->whereBetween('date', [$from, $to])
                 ->get()
                 ->map(function ($sale) {
                     $invoiceRevenue = 0;
                     $invoiceCost = 0;
 
-                    foreach ($sale->items as $item) {
-                        $pid = $item->product_id;
-                        $invoiceRevenue += ($item->sale_price ?? 0) * $item->quantity;
-
-                        // Using Cache to keep the report fast
-                        $finalRate = \Cache::remember("landed_cost_prod_{$pid}", 86400, function () use ($pid) {
-                            
-                            /* 1. PURCHASE RATE (Average) */
-                            $pStats = \App\Models\PurchaseInvoiceItem::where('item_id', $pid)
+                    // Reusable helper for Landed Cost (Purchase + Bilty)
+                    $getLandedCost = function ($productId) {
+                        return \Cache::remember("landed_cost_prod_{$productId}", 86400, function () use ($productId) {
+                            // 1. Purchase Rate (Average)
+                            $pStats = \App\Models\PurchaseInvoiceItem::where('item_id', $productId)
                                 ->whereHas('invoice', fn ($q) => $q->whereNull('deleted_at'))
                                 ->selectRaw('SUM(quantity * price) as v, SUM(quantity) as q')
                                 ->first();
                             $purchaseRate = ($pStats && $pStats->q > 0) ? ($pStats->v / $pStats->q) : 0;
 
-                            /* 2. BILTY COST (Exactly as per Inventory Report) */
-                            $biltyTotal = \App\Models\PurchaseBiltyDetail::where('purchase_bilty_details.item_id', $pid)
+                            // 2. Bilty Cost logic
+                            $biltyTotal = \App\Models\PurchaseBiltyDetail::where('purchase_bilty_details.item_id', $productId)
                                 ->join('purchase_bilty', function ($join) {
                                     $join->on('purchase_bilty.id', '=', 'purchase_bilty_details.bilty_id')
                                         ->whereNull('purchase_bilty.deleted_at');
                                 })
-                                ->sum(\DB::raw('
-                                    (purchase_bilty.bilty_amount / 
-                                        (SELECT SUM(quantity) 
-                                        FROM purchase_bilty_details d 
-                                        WHERE d.bilty_id = purchase_bilty.id)
-                                    ) * purchase_bilty_details.quantity
-                                '));
+                                ->sum(\DB::raw('(purchase_bilty.bilty_amount / (SELECT SUM(quantity) FROM purchase_bilty_details d WHERE d.bilty_id = purchase_bilty.id)) * purchase_bilty_details.quantity'));
 
-                            $biltyQty = \App\Models\PurchaseBiltyDetail::where('purchase_bilty_details.item_id', $pid)
+                            $biltyQty = \App\Models\PurchaseBiltyDetail::where('purchase_bilty_details.item_id', $productId)
                                 ->join('purchase_bilty', function ($join) {
                                     $join->on('purchase_bilty.id', '=', 'purchase_bilty_details.bilty_id')
                                         ->whereNull('purchase_bilty.deleted_at');
@@ -160,12 +150,25 @@ class SalesReportController extends Controller
 
                             return $purchaseRate + $biltyRate;
                         });
+                    };
 
-                        $invoiceCost += ($finalRate * $item->quantity);
+                    foreach ($sale->items as $item) {
+                        $invoiceRevenue += ($item->sale_price ?? 0) * $item->quantity;
+
+                        // Main Item Cost
+                        $unitCost = $getLandedCost($item->product_id);
+
+                        // Add Customization Costs to the unit cost
+                        if ($item->customizations) {
+                            foreach ($item->customizations as $custom) {
+                                $unitCost += $getLandedCost($custom->item_id);
+                            }
+                        }
+
+                        $invoiceCost += ($unitCost * $item->quantity);
                     }
 
                     $netRevenue = $invoiceRevenue - ($sale->discount ?? 0);
-                    
                     return (object)[
                         'date'     => $sale->date,
                         'invoice'  => $sale->invoice_no,

@@ -129,76 +129,33 @@ class InventoryReportController extends Controller
 
         /* ================= STOCK IN HAND ================= */
         if ($tab === 'SR') {
-
             $costing = $request->costing_method ?? 'avg';
-
-            $items = $productId
-                ? Product::where('id', $productId)->get()
-                : $products;
+            $items = $productId ? Product::where('id', $productId)->get() : $products;
 
             foreach ($items as $product) {
-
-                /* ================= QTY ================= */
                 $purchaseQty = PurchaseInvoiceItem::where('item_id', $product->id)
-                    ->whereHas('invoice', fn ($q) => $q->whereNull('deleted_at'))
-                    ->sum('quantity');
+                    ->whereHas('invoice', fn ($q) => $q->whereNull('deleted_at'))->sum('quantity');
 
                 $purchaseReturnQty = PurchaseReturnItem::where('item_id', $product->id)
-                    ->whereHas('return', fn ($q) => $q->whereNull('deleted_at'))
-                    ->sum('quantity');
+                    ->whereHas('return', fn ($q) => $q->whereNull('deleted_at'))->sum('quantity');
 
                 $saleQty = SaleInvoiceItem::where('product_id', $product->id)
-                    ->whereHas('saleInvoice', fn ($q) => $q->whereNull('deleted_at'))
-                    ->sum('quantity');
+                    ->whereHas('saleInvoice', fn ($q) => $q->whereNull('deleted_at'))->sum('quantity');
 
                 $saleReturnQty = SaleReturnItem::where('product_id', $product->id)
-                    ->whereHas('saleReturn', fn ($q) => $q->whereNull('deleted_at'))
-                    ->sum('qty');
+                    ->whereHas('saleReturn', fn ($q) => $q->whereNull('deleted_at'))->sum('qty');
 
-                $qty = $purchaseQty - $purchaseReturnQty - $saleQty + $saleReturnQty;
+                /* NEW: Subtract items used in customizations */
+                $customConsumption = \App\Models\SaleItemCustomization::where('item_id', $product->id)
+                    ->whereHas('saleInvoice', fn ($q) => $q->whereNull('deleted_at'))
+                    ->join('sale_invoice_items', 'sale_item_customization.sale_invoice_items_id', '=', 'sale_invoice_items.id')
+                    ->sum('sale_invoice_items.quantity');
+
+                $qty = $purchaseQty - $purchaseReturnQty - $saleQty + $saleReturnQty - $customConsumption;
 
                 if ($qty <= 0) continue;
 
-                /* ================= PURCHASE RATE ================= */
-                $purchaseQuery = PurchaseInvoiceItem::where('item_id', $product->id)
-                    ->whereHas('invoice', fn ($q) => $q->whereNull('deleted_at'));
-
-                $purchaseRate = match ($costing) {
-                    'max'    => $purchaseQuery->max('price') ?? 0,
-                    'min'    => $purchaseQuery->min('price') ?? 0,
-                    'latest' => optional($purchaseQuery->latest('id')->first())->price ?? 0,
-                    default  => ($r = $purchaseQuery
-                                    ->selectRaw('SUM(quantity * price) v, SUM(quantity) q')
-                                    ->first()) && $r->q > 0
-                                    ? $r->v / $r->q
-                                    : 0
-                };
-
-                /* ================= BILTY COST ================= */
-                $biltyTotal = PurchaseBiltyDetail::where('purchase_bilty_details.item_id', $product->id)
-                    ->join('purchase_bilty', function ($join) {
-                        $join->on('purchase_bilty.id', '=', 'purchase_bilty_details.bilty_id')
-                            ->whereNull('purchase_bilty.deleted_at');
-                    })
-                    ->sum(\DB::raw('
-                        (purchase_bilty.bilty_amount /
-                            (SELECT SUM(quantity)
-                            FROM purchase_bilty_details d
-                            WHERE d.bilty_id = purchase_bilty.id)
-                        ) * purchase_bilty_details.quantity
-                    '));
-
-                $biltyQty = PurchaseBiltyDetail::where('purchase_bilty_details.item_id', $product->id)
-                    ->join('purchase_bilty', function ($join) {
-                        $join->on('purchase_bilty.id', '=', 'purchase_bilty_details.bilty_id')
-                            ->whereNull('purchase_bilty.deleted_at');
-                    })
-                    ->sum('purchase_bilty_details.quantity');
-
-                $biltyRate = $biltyQty > 0 ? $biltyTotal / $biltyQty : 0;
-
-                /* ================= FINAL COST ================= */
-                $finalRate = $purchaseRate + $biltyRate;
+                // ... [Keep your existing Purchase Rate & Bilty Rate code here] ...
 
                 $stockInHand->push([
                     'product'  => $product->name,
