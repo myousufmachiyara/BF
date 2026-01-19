@@ -154,9 +154,19 @@ class COAController extends Controller
 
     public function destroy($id)
     {
-        $chartOfAccount = ChartOfAccounts::findOrFail($id);
-        $chartOfAccount->delete();
+        try {
+            $chartOfAccount = ChartOfAccounts::findOrFail($id);
+            
+            // Optional: Check if the account has linked transactions before deleting
+            // if ($chartOfAccount->transactions()->exists()) {
+            //     return redirect()->back()->with('error', 'Cannot delete account with existing transactions.');
+            // }
 
-        return redirect()->route('coa.index')->with('success', 'Chart of Account deleted successfully.');
+            $chartOfAccount->delete();
+
+            return redirect()->route('coa.index')->with('success', 'Chart of Account deleted successfully.');
+        } catch (\Exception $e) {
+            return redirect()->back()->with('error', 'Error deleting account: ' . $e->getMessage());
+        }
     }
 }

@@ -6,6 +6,17 @@
     <div class="row">
         <div class="col">
             <section class="card">
+                @if(session('success'))
+                    <div class="alert alert-success">
+                        {{ session('success') }}
+                    </div>
+                @endif
+
+                @if(session('error'))
+                    <div class="alert alert-danger">
+                        {{ session('error') }}
+                    </div>
+                @endif
                 <header class="card-header">
                     <div style="display: flex;justify-content: space-between;">
                         <h2 class="card-title">All Accounts</h2>
@@ -70,10 +81,12 @@
                                         @endcan
 
                                         @can('coa.delete')
-                                            <form action="{{ route('coa.destroy', $item->id) }}" method="POST" style="display:inline;">
+                                            <form action="{{ route('coa.destroy', $item->id) }}" method="POST" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this account? This action cannot be undone.');">
                                                 @csrf
                                                 @method('DELETE')
-                                                <a class="btn btn-link p-0 m-0 text-danger" onclick="return confirm('Are you sure?')"><i class="fa fa-trash-alt"></i></a>
+                                                <button type="submit" class="btn btn-link p-0 m-0 text-danger" title="Delete Account">
+                                                    <i class="fa fa-trash-alt"></i>
+                                                </button>
                                             </form>
                                         @endcan
                                     </td>
