@@ -37,7 +37,7 @@
               <label>Invoice Type</label>
               <select name="type" class="form-control" required>
                 <option value="cash" {{ $invoice->type == 'cash' ? 'selected' : '' }}>Cash</option>
-                <option value="credit" {{ $invoice->type == 'credit' ? 'selected' : '' }}>Credit (E-commerce)</option>
+                <option value="credit" {{ $invoice->type == 'credit' ? 'selected' : '' }}>Credit</option>
               </select>
             </div>
           </div>
