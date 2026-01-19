@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\SaleInvoice;
 use App\Models\SaleInvoiceItem;
 use App\Models\SaleItemCustomization;
+use App\Models\PurchaseInvoiceItem;
 use App\Models\ChartOfAccounts;
 use App\Models\Product;
 use App\Models\Voucher;
@@ -134,8 +135,8 @@ class SaleInvoiceController extends Controller
                 $totalCost = 0;
                 foreach ($validated['items'] as $item) {
                     // Find the LATEST purchase of this product to get the most recent price
-                    $latestPurchase = \App\Models\PurchaseInvoiceItem::where('product_id', $item['product_id'])
-                        ->with('purchaseInvoice') // Assuming relation exists
+                    $latestPurchase = PurchaseInvoiceItem::where('item_id', $item['product_id'])
+                        ->with('invoice') // Assuming relation exists
                         ->latest()
                         ->first();
 
@@ -143,7 +144,7 @@ class SaleInvoiceController extends Controller
                         $unitPrice = $latestPurchase->purchase_price;
                         
                         // Calculate Bilty share (Total Bilty / Total Items in that purchase)
-                        $totalQtyInPurchase = \App\Models\PurchaseInvoiceItem::where('purchase_invoice_id', $latestPurchase->purchase_invoice_id)->sum('quantity');
+                        $totalQtyInPurchase = PurchaseInvoiceItem::where('purchase_invoice_id', $latestPurchase->purchase_invoice_id)->sum('quantity');
                         $biltyCharge = $latestPurchase->purchaseInvoice->bilty_charges ?? 0;
                         
                         $landedCostPerUnit = $unitPrice + ($biltyCharge / ($totalQtyInPurchase ?: 1));
