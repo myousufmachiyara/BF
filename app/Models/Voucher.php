@@ -16,6 +16,8 @@ class Voucher extends Model
         'ac_cr_sid',
         'amount',
         'remarks',
+        'reference',
+        'description',
         'attachments',
     ];
 

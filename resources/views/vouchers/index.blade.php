@@ -15,7 +15,7 @@
 
       <div class="card-body">
         <div class="table-responsive">
-          <table class="table table-bordered table-striped mb-0" id="voucher-datatable">
+          <table class="table table-bordered table-striped mb-0" id="datatable-default">
             <thead>
               <tr>
                 <th>Voch#</th>

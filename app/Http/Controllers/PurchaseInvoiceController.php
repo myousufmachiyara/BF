@@ -105,10 +105,7 @@ class PurchaseInvoiceController extends Controller
             }
 
             // 4. Find Debit Account (Inventory/Stock)
-            $inventoryAccount = ChartOfAccounts::where(function($q) {
-                $q->where('name', 'like', '%Stock%')
-                ->orWhere('name', 'like', '%Inventory%');
-            })->first();
+            $inventoryAccount = ChartOfAccounts::where('name', 'Stock in Hand')->first();
 
             if (!$inventoryAccount) {
                 throw new \Exception("Default Inventory/Stock account not found. Please check Chart of Accounts.");
@@ -121,8 +118,7 @@ class PurchaseInvoiceController extends Controller
                 'ac_dr_sid'    => $inventoryAccount->id, // Debit: Stock
                 'ac_cr_sid'    => $request->vendor_id,    // Credit: Vendor
                 'amount'       => $totalAmount,           // FIXED: Now has the full invoice value
-                'description'  => "Purchase Invoice #$invoiceNo - Vendor: " . ($invoice->vendor->name ?? 'N/A'),
-                'reference'    => $invoice->id,
+                'reference'    => (string)$invoice->id,   // Cast to string to ensure update lookup works
             ]);
 
             // 6. Handle Attachments
@@ -226,30 +222,27 @@ class PurchaseInvoiceController extends Controller
             $discount = (float)($request->bill_discount ?? 0);
             $finalVoucherAmount = ($totalItemsAmount + $convance + $labour) - $discount;
 
-            // 4. Update General Ledger (Voucher)
-            $inventoryAccount = ChartOfAccounts::where('account_type', 'asset')
-                ->where(function($q) {
-                    $q->where('name', 'like', '%Stock%')
-                    ->orWhere('name', 'like', '%Inventory%');
-                })->first();
+            // 3. Find the Inventory Account (Stock in Hand)
+            $inventoryAccount = ChartOfAccounts::where('name', 'Stock in Hand')->first();
 
-            if (!$inventoryAccount) {
-                throw new \Exception("Inventory/Stock account not found.");
+            // 4. Update or Create the General Ledger (Voucher)
+            // First, try to find the existing voucher linked to this invoice
+            $voucher = Voucher::where('reference', (string)$invoice->id)->where('voucher_type', 'journal')->first();
+
+            if (!$voucher) {
+                // If no voucher exists, create a new instance
+                $voucher = new Voucher();
+                $voucher->reference = (string)$invoice->id;
+                $voucher->voucher_type = 'journal';
             }
 
-            Voucher::updateOrCreate(
-                [
-                    'reference'    => $invoice->id, 
-                    'voucher_type' => 'journal'
-                ], 
-                [
-                    'date'      => $request->invoice_date,
-                    'ac_dr_sid' => $inventoryAccount->id, 
-                    'ac_cr_sid' => $request->vendor_id,
-                    'amount'    => $finalVoucherAmount, // FIXED: Now uses calculated total
-                    'remarks'   => "Updated Purchase Invoice #{$invoice->invoice_no}",
-                ]
-            );
+            // Update the fields (this applies to both existing and new vouchers)
+            $voucher->date      = $request->invoice_date;
+            $voucher->ac_dr_sid = $inventoryAccount->id;
+            $voucher->ac_cr_sid = $request->vendor_id;
+            $voucher->amount    = $finalVoucherAmount;
+            $voucher->remarks   = "Updated Purchase Invoice #{$invoice->invoice_no}";
+            $voucher->save();
 
             // 5. Attachments
             if ($request->hasFile('attachments')) {
