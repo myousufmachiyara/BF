@@ -206,7 +206,6 @@ class SaleInvoiceController extends Controller
             'items.*.quantity'   => 'required|numeric|min:1',
             'items.*.customizations'   => 'nullable|array',
             'items.*.customizations.*' => 'exists:products,id',
-            // Payment fields
             'payment_account_id' => 'nullable|exists:chart_of_accounts,id',
             'amount_received'    => 'nullable|numeric|min:0',
         ]);
@@ -214,7 +213,7 @@ class SaleInvoiceController extends Controller
         DB::beginTransaction();
         try {
             $invoice = SaleInvoice::findOrFail($id);
-            $oldAccountId = $invoice->account_id;
+            $invoiceNo = $invoice->invoice_no;
 
             // 1. Update Invoice Basic Data
             $invoice->update([
@@ -225,16 +224,91 @@ class SaleInvoiceController extends Controller
                 'remarks'    => $validated['remarks'],
             ]);
 
-            // 2. VOUCHER LOGIC: Sync or Add
-            // Find all vouchers linked to this invoice via remarks
-            $existingVouchers = Voucher::where('remarks', 'LIKE', "%Invoice #{$invoice->invoice_no}%");
+            // 2. Clear Existing Items & Customizations
+            SaleItemCustomization::where('sale_invoice_id', $invoice->id)->delete();
+            $invoice->items()->delete();
 
-            if ($oldAccountId != $validated['account_id']) {
-                // If customer changed, update ALL existing vouchers to the new customer ID
-                $existingVouchers->update(['ac_cr_sid' => $validated['account_id']]);
+            // 3. Re-insert Items & Calculate Totals
+            $totalBill = 0;
+            $totalCost = 0;
+
+            // Fetch Accounts for COGS Logic
+            $inventoryAccount = ChartOfAccounts::where('name', 'Stock in Hand')->first();
+            $cogsAccount = ChartOfAccounts::where('account_type', 'cogs')->first();
+
+            foreach ($validated['items'] as $item) {
+                $invoiceItem = SaleInvoiceItem::create([
+                    'sale_invoice_id' => $invoice->id,
+                    'product_id'      => $item['product_id'],
+                    'sale_price'      => $item['sale_price'],
+                    'quantity'        => $item['quantity'],
+                ]);
+
+                $totalBill += ($item['sale_price'] * $item['quantity']);
+
+                // COGS Logic (Landed Cost per unit)
+                $latestPurchase = PurchaseInvoiceItem::where('item_id', $item['product_id'])->latest()->first();
+                if ($latestPurchase) {
+                    $unitPrice = $latestPurchase->price; // Matches your store logic
+                    $totalQtyInPurchase = PurchaseInvoiceItem::where('purchase_invoice_id', $latestPurchase->purchase_invoice_id)->sum('quantity');
+                    $biltyCharge = $latestPurchase->invoice->bilty_charges ?? 0;
+                    $landedCostPerUnit = $unitPrice + ($biltyCharge / ($totalQtyInPurchase ?: 1));
+                    
+                    $itemTotalCost = $landedCostPerUnit;
+
+                    // Handle Customizations
+                    if (!empty($item['customizations'])) {
+                        foreach ($item['customizations'] as $customId) {
+                            SaleItemCustomization::create([
+                                'sale_invoice_id'       => $invoice->id,
+                                'sale_invoice_items_id' => $invoiceItem->id,
+                                'item_id'               => $customId,
+                            ]);
+                            
+                            // Add customization material cost to COGS
+                            $customPurchase = PurchaseInvoiceItem::where('item_id', $customId)->latest()->first();
+                            if ($customPurchase) {
+                                $itemTotalCost += $customPurchase->price;
+                            }
+                        }
+                    }
+                    $totalCost += ($itemTotalCost * $item['quantity']);
+                }
             }
 
-            // 3. ADD NEW VOUCHER (If amount received now is entered)
+            $netTotal = $totalBill - ($validated['discount'] ?? 0);
+
+            // 4. Update Financial Vouchers
+            // First, delete old Sales and COGS vouchers to prevent duplicates
+            // Note: We use 'reference' if available, otherwise 'remarks'
+            Voucher::where('reference', $invoice->id)->delete();
+
+            // Re-create Sales Revenue Entry
+            $salesAccount = ChartOfAccounts::where('account_type', 'revenue')->first();
+            Voucher::create([
+                'voucher_type' => 'journal',
+                'date'         => $validated['date'],
+                'ac_dr_sid'    => $validated['account_id'], // Debit Customer
+                'ac_cr_sid'    => $salesAccount->id,        // Credit Sales
+                'amount'       => $netTotal,
+                'remarks'      => "Updated: Sales Invoice #{$invoiceNo}",
+                'reference'    => $invoice->id,
+            ]);
+
+            // Re-create COGS Entry
+            if ($inventoryAccount && $cogsAccount && $totalCost > 0) {
+                Voucher::create([
+                    'voucher_type' => 'journal',
+                    'date'         => $validated['date'],
+                    'ac_dr_sid'    => $cogsAccount->id,      
+                    'ac_cr_sid'    => $inventoryAccount->id, 
+                    'amount'       => $totalCost,
+                    'remarks'      => "Updated: COGS for Invoice #{$invoiceNo}",
+                    'reference'    => $invoice->id,
+                ]);
+            }
+
+            // 5. Handle Payment Update (Receipt)
             if ($request->filled('payment_account_id') && $request->amount_received > 0) {
                 Voucher::create([
                     'voucher_type' => 'receipt',
@@ -242,35 +316,18 @@ class SaleInvoiceController extends Controller
                     'ac_dr_sid'    => $validated['payment_account_id'],
                     'ac_cr_sid'    => $validated['account_id'],
                     'amount'       => $validated['amount_received'],
-                    'remarks'      => "Payment received against Invoice #{$invoice->invoice_no}. " . $validated['remarks'],
+                    'remarks'      => "Payment received for Invoice #{$invoiceNo}",
+                    'reference'    => $invoice->id,
                 ]);
-            }
-
-            // 4. Update Items (Delete & Re-insert)
-            SaleItemCustomization::where('sale_invoice_id', $invoice->id)->delete();
-            $invoice->items()->delete();
-
-            foreach ($validated['items'] as $item) {
-                $invoiceItem =SaleInvoiceItem::create([
-                    'sale_invoice_id' => $invoice->id,
-                    'product_id'      => $item['product_id'],
-                    'sale_price'      => $item['sale_price'],
-                    'quantity'        => $item['quantity'],
-                ]);
-
-                if (!empty($item['customizations'])) {
-                    foreach ($item['customizations'] as $customId) {
-                       SaleItemCustomization::create([
-                            'sale_invoice_id'       => $invoice->id,
-                            'sale_invoice_items_id' => $invoiceItem->id,
-                            'item_id'               => $customId,
-                        ]);
-                    }
-                }
             }
 
             DB::commit();
-            return redirect()->route('sale_invoices.index')->with('success', 'Invoice and Ledger updated.');
+            // Clear Cache for the updated products to refresh profit reports
+            foreach($validated['items'] as $item) {
+                \Cache::forget("landed_cost_prod_{$item['product_id']}");
+            }
+
+            return redirect()->route('sale_invoices.index')->with('success', 'Invoice and Vouchers updated successfully.');
 
         } catch (\Throwable $e) {
             DB::rollBack();
