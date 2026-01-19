@@ -138,7 +138,6 @@
   $(document).ready(function () {
     $('.select2-js').select2({ width: '100%', dropdownAutoWidth: true });
     updateSerialNumbers();
-
   });
 
   function updateSerialNumbers() {

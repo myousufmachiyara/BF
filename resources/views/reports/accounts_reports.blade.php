@@ -127,28 +127,45 @@
 
                             @forelse ($reports[$key] ?? [] as $row)
                                 @php
-                                    // Check if row is a header or total line (especially for P&L)
                                     $firstCol = (string)($row[0] ?? '');
-                                    $isSpecialRow = in_array($firstCol, ['REVENUE', 'EXPENSES', 'NET PROFIT/LOSS', 'Opening Balance']);
-                                    $rowClass = $isSpecialRow ? 'table-secondary fw-bold' : '';
+                                    
+                                    // 1. Identify row types for styling
+                                    $headers = ['REVENUE', 'EXPENSES', 'OPERATING EXPENSES', 'LESS: COST OF GOODS SOLD'];
+                                    $totals  = ['Total Revenue', 'GROSS PROFIT', 'NET PROFIT/LOSS', 'Opening Balance', 'Total Cash Inflow (Receipts)', 'Total Cash Outflow (Payments)', 'Net Increase/Decrease in Cash'];
+                                    
+                                    // 2. Determine CSS Class
+                                    $rowClass = '';
+                                    $isSpecialRow = false;
+
+                                    if (in_array($firstCol, $headers)) {
+                                        $rowClass = 'table-secondary fw-bold';
+                                        $isSpecialRow = true;
+                                    } elseif (in_array($firstCol, $totals)) {
+                                        $rowClass = 'table-info fw-bold';
+                                        $isSpecialRow = true;
+                                    }
+
+                                    // 3. Highlight Net Profit/Loss color
+                                    if ($firstCol === 'NET PROFIT/LOSS') {
+                                        $val = (float)str_replace(',', '', (string)($row[1] ?? 0));
+                                        $rowClass = $val >= 0 ? 'table-success fw-bold' : 'table-danger fw-bold text-white';
+                                    }
                                 @endphp
 
                                 <tr class="{{ $rowClass }}">
                                     @foreach ($row as $index => $col)
                                         @php
-                                            // Cleaning logic: remove commas to check if numeric
                                             $rawString = str_replace(',', '', (string)$col);
-                                            $isNumeric = is_numeric($rawString) && $col !== '';
+                                            $isNumeric = is_numeric($rawString) && $col !== '' && !in_array($col, $headers);
                                             
-                                            // Running total for specific summary reports (usually 2nd column)
-                                            if (in_array($key, ['receivables', 'payables', 'expense_analysis']) && $index === 1 && !$isSpecialRow) {
+                                            // 4. Update Footer Total (Only for non-special rows in specific reports)
+                                            if (!$isSpecialRow && in_array($key, ['receivables', 'payables', 'expense_analysis']) && $index === 1) {
                                                 $footerTotal += (float)$rawString;
                                             }
                                         @endphp
 
                                         <td class="{{ $isNumeric ? 'text-end' : '' }}">
                                             @if($isNumeric)
-                                                {{-- Check if already formatted (contains comma), if not, format it --}}
                                                 {{ strpos((string)$col, ',') !== false ? $col : number_format((float)$col, 2) }}
                                             @else
                                                 {{ $col }}

@@ -65,30 +65,53 @@ class AccountsReportController extends Controller
         ];
     }
 
-    /* ================= PROFIT & LOSS FIX ================= */
+    /* ================= PROFIT & LOSS ================= */
     private function profitLoss($from, $to)
     {
-        $revenue = ChartOfAccounts::where('account_type', 'revenue')->get()->map(function($a) use ($from, $to) {
-            $bal = $this->getAccountBalance($a->id, $from, $to);
-            return [$a->name, $this->fmt($bal['credit'] - $bal['debit'])];
-        })->filter(fn($r) => (float)str_replace(',', '', $r[1]) != 0);
+        // 1. REVENUE
+        $revenue = ChartOfAccounts::where('account_type', 'revenue')->get()
+            ->map(function($a) use ($from, $to) {
+                $bal = $this->getAccountBalance($a->id, $from, $to);
+                return [$a->name, $bal['credit'] - $bal['debit']];
+            })->filter(fn($r) => $r[1] != 0);
 
-        $expenses = ChartOfAccounts::where('account_type', 'expenses')->get()->map(function($a) use ($from, $to) {
-            $bal = $this->getAccountBalance($a->id, $from, $to);
-            return [$a->name, $this->fmt($bal['debit'] - $bal['credit'])];
-        })->filter(fn($r) => (float)str_replace(',', '', $r[1]) != 0);
+        // 2. COGS
+        $cogs = ChartOfAccounts::whereIn('account_type', ['cogs', 'cost_of_sales'])->get()
+            ->map(function($a) use ($from, $to) {
+                $bal = $this->getAccountBalance($a->id, $from, $to);
+                return [$a->name, $bal['debit'] - $bal['credit']];
+            })->filter(fn($r) => $r[1] != 0);
 
-        $totalRev = $revenue->sum(fn($r) => (float)str_replace(',', '', $r[1]));
-        $totalExp = $expenses->sum(fn($r) => (float)str_replace(',', '', $r[1]));
+        // 3. EXPENSES
+        $expenses = ChartOfAccounts::where('account_type', 'expenses')->get()
+            ->map(function($a) use ($from, $to) {
+                $bal = $this->getAccountBalance($a->id, $from, $to);
+                return [$a->name, $bal['debit'] - $bal['credit']];
+            })->filter(fn($r) => $r[1] != 0);
 
-        return collect([['REVENUE', '']])
-            ->concat($revenue)
-            ->concat([['EXPENSES', '']])
-            ->concat($expenses)
-            ->concat([['NET PROFIT/LOSS', $this->fmt($totalRev - $totalExp)]]);
+        $totalRev  = $revenue->sum(fn($r) => $r[1]);
+        $totalCogs = $cogs->sum(fn($r) => $r[1]);
+        $grossProfit = $totalRev - $totalCogs;
+        $totalExp  = $expenses->sum(fn($r) => $r[1]);
+        $netProfit = $grossProfit - $totalExp;
+
+        // We return a flat collection so your existing Blade @foreach loop doesn't break
+        $data = collect([['REVENUE', '']]);
+        $data = $data->concat($revenue);
+        $data->push(['Total Revenue', $totalRev]);
+
+        $data->push(['LESS: COST OF GOODS SOLD', '']);
+        $data = $data->concat($cogs);
+        $data->push(['GROSS PROFIT', $grossProfit]);
+
+        $data->push(['OPERATING EXPENSES', '']);
+        $data = $data->concat($expenses);
+        $data->push(['NET PROFIT/LOSS', $netProfit]);
+
+        return $data;
     }
 
-    /* ================= PARTY LEDGER (The Fix) ================= */
+    /* ================= PARTY LEDGER ================= */
     private function partyLedger($from, $to, $accountId = null)
     {
         if (!$accountId) return collect();
@@ -163,6 +186,8 @@ class AccountsReportController extends Controller
                 return [$a->name, $this->fmt($total)];
             })->filter(fn($r) => (float)str_replace(',', '', $r[1]) != 0);
     }
+
+    /* ================= RECEIVABLES ================= */
 
     private function payables($from, $to)
     {

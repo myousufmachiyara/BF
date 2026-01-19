@@ -215,6 +215,10 @@
 </div>
 
 <script>
+  $(document).ready(function () {
+    $('.select2-js').select2({ width: '100%', dropdownAutoWidth: true });
+  });
+  
   function getVoucherDetails(id) {
       document.getElementById('updateForm').action = `/vouchers/{{ $type }}/${id}`;
       fetch(`/vouchers/{{ $type }}/${id}`)

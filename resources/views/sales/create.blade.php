@@ -183,6 +183,17 @@
 
       // FIXED: Corrected the combined selector for inputs
       $(document).on('input', '#amountReceived, #discountInput', calcTotal);
+
+      $(document).on('change', 'select[name="type"]', function() {
+        if($(this).val() === 'cash') {
+          const netTotal = $('#netAmountInput').val();
+          $('#amountReceived').val(netTotal);
+          calcTotal(); // Update the balance text
+        } else {
+          $('#amountReceived').val(0);
+          calcTotal();
+        }
+      });
   });
 
   function initProductSelect(row) {

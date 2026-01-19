@@ -94,16 +94,72 @@ class SaleInvoiceController extends Controller
                 }
             }
 
-            // 3. Handle Payment Voucher
+            $netTotal = $totalBill - ($validated['discount'] ?? 0);
+
+            // 3. Record Sales Revenue Entry
+            $salesAccount = ChartOfAccounts::where('name', 'Sales Revenue')
+                ->orWhere('account_type', 'revenue')
+                ->first();
+
+            if (!$salesAccount) throw new \Exception('Sales Revenue account not found.');
+
+            Voucher::create([
+                'voucher_type' => 'journal',
+                'date'         => $validated['date'],
+                'ac_dr_sid'    => $validated['account_id'], // Debit Customer
+                'ac_cr_sid'    => $salesAccount->id,        // Credit Sales
+                'amount'       => $netTotal,
+                'remarks'      => "Sales Invoice #{$invoiceNo}",
+                'reference'    => $invoice->id,
+            ]);
+
+            // 4. Handle Payment (If Cash or partial payment received)
             if ($request->filled('payment_account_id') && $request->amount_received > 0) {
                 Voucher::create([
                     'voucher_type' => 'receipt',
                     'date'         => $validated['date'],
-                    'ac_dr_sid'    => $validated['payment_account_id'], // Asset (Bank/Cash)
-                    'ac_cr_sid'    => $validated['account_id'],         // Customer (Liability/Revenue decrease)
+                    'ac_dr_sid'    => $validated['payment_account_id'], // Debit Cash/Bank
+                    'ac_cr_sid'    => $validated['account_id'],         // Credit Customer
                     'amount'       => $validated['amount_received'],
-                    'remarks'      => "Payment received against Invoice #{$invoiceNo}. " . ($validated['remarks'] ?? ''),
-                    // 'reference_id' => $invoice->id, // Optional: for easier tracking
+                    'remarks'      => "Payment received for Invoice #{$invoiceNo}",
+                    'reference'    => $invoice->id,
+                ]);
+            }
+
+            // 5. NEW: Record Cost of Goods Sold (COGS) Entry
+            $inventoryAccount = ChartOfAccounts::where('name', 'Stock in Hand')->first();
+            $cogsAccount = ChartOfAccounts::where('account_type', 'cogs')->first();
+
+            if ($inventoryAccount && $cogsAccount) {
+                $totalCost = 0;
+                foreach ($validated['items'] as $item) {
+                    // Find the LATEST purchase of this product to get the most recent price
+                    $latestPurchase = \App\Models\PurchaseInvoiceItem::where('product_id', $item['product_id'])
+                        ->with('purchaseInvoice') // Assuming relation exists
+                        ->latest()
+                        ->first();
+
+                    if ($latestPurchase) {
+                        $unitPrice = $latestPurchase->purchase_price;
+                        
+                        // Calculate Bilty share (Total Bilty / Total Items in that purchase)
+                        $totalQtyInPurchase = \App\Models\PurchaseInvoiceItem::where('purchase_invoice_id', $latestPurchase->purchase_invoice_id)->sum('quantity');
+                        $biltyCharge = $latestPurchase->purchaseInvoice->bilty_charges ?? 0;
+                        
+                        $landedCostPerUnit = $unitPrice + ($biltyCharge / ($totalQtyInPurchase ?: 1));
+                        
+                        $totalCost += ($landedCostPerUnit * $item['quantity']);
+                    }
+                }
+
+                Voucher::create([
+                    'voucher_type' => 'journal',
+                    'date'         => $validated['date'],
+                    'ac_dr_sid'    => $cogsAccount->id,      
+                    'ac_cr_sid'    => $inventoryAccount->id, 
+                    'amount'       => $totalCost,
+                    'remarks'      => "COGS (Landed Cost) for Invoice #{$invoiceNo}",
+                    'reference'    => $invoice->id,
                 ]);
             }
 

@@ -29,7 +29,7 @@
                 <div class="row">
                     <div class="col-md-3">
                         <label>Product</label>
-                        <select name="item_id" class="form-control" required>
+                        <select name="item_id" class="form-control select2-js" required>
                             <option value="">-- Select Product --</option>
                             @foreach($products as $product)
                                 <option value="{{ $product->id }}"
@@ -123,7 +123,7 @@
                 <div class="row">
                     <div class="col-md-3">
                         <label>Product</label>
-                        <select name="item_id" class="form-control">
+                        <select name="item_id" class="form-control select2-js">
                             <option value="">-- All Products --</option>
                             @foreach($products as $product)
                                 <option value="{{ $product->id }}"
@@ -197,4 +197,9 @@
 
     </div>
 </div>
+<script>
+    $(document).ready(function () {
+        $('.select2-js').select2({ width: '100%', dropdownAutoWidth: true });
+    });
+</script>
 @endsection
