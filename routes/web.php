@@ -39,7 +39,8 @@ Route::middleware(['auth'])->group(function () {
 
     //Purchase Helper
     Route::get('/product/{product}/invoices', [PurchaseInvoiceController::class, 'getProductInvoices']);
-
+    Route::patch('purchase_invoices/{id}/restore', [PurchaseInvoiceController::class, 'restore'])->name('purchase_invoices.restore');
+    
     //Bilty Helper
     Route::get('/get-purchase-items/{id}', [App\Http\Controllers\PurchaseBiltyController::class, 'getInvoiceItems']);
 

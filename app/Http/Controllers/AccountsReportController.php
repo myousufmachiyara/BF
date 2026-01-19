@@ -37,49 +37,55 @@ class AccountsReportController extends Controller
 
     private function fmt($v) { return number_format($v, 2); }
 
-    /* ================= LEDGER LOGIC (The Core Fix) ================= */
+    /* ================= REFINED LEDGER LOGIC ================= */
     private function getAccountBalance($accountId, $from, $to, $asOfDate = null)
     {
         $account = ChartOfAccounts::find($accountId);
         if (!$account) return ['debit' => 0, 'credit' => 0];
 
-        // 1. Get Initial Balance from your specific schema columns
-        // Customers use 'receivables', Vendors use 'payables'
-        $initialDr = (float) ($account->receivables ?? 0); 
-        $initialCr = (float) ($account->payables ?? 0);
+        // These columns in your DB represent the Opening Balances
+        $openingDr = (float) $account->receivables; 
+        $openingCr = (float) $account->payables;
 
-        // 2. Query Vouchers
-        $queryDr = Voucher::where('ac_dr_sid', $accountId);
-        $queryCr = Voucher::where('ac_cr_sid', $accountId);
+        $targetDate = $asOfDate ?? $to;
 
-        if ($asOfDate) {
-            $queryDr->where('date', '<=', $asOfDate);
-            $queryCr->where('date', '<=', $asOfDate);
-        } else {
-            $queryDr->whereBetween('date', [$from, $to]);
-            $queryCr->whereBetween('date', [$from, $to]);
-        }
+        // Sum activity from the vouchers table
+        $vDr = Voucher::where('ac_dr_sid', $accountId)
+                    ->where('date', '<=', $targetDate)
+                    ->sum('amount');
 
-        $vDr = $queryDr->sum('amount');
-        $vCr = $queryCr->sum('amount');
+        $vCr = Voucher::where('ac_cr_sid', $accountId)
+                    ->where('date', '<=', $targetDate)
+                    ->sum('amount');
 
-        // 3. Match against your HTML Select values: "customer", "vendor", "expenses", etc.
-        $type = strtolower($account->account_type);
+        // Return totals
+        return [
+            'debit'  => $openingDr + $vDr,
+            'credit' => $openingCr + $vCr
+        ];
+    }
 
-        // Debit Nature: Assets, Customers, Cash, Bank, Expenses
-        if (in_array($type, ['customer', 'cash', 'bank', 'asset', 'expenses'])) {
-            return [
-                'debit'  => $initialDr + $vDr,
-                'credit' => $vCr
-            ];
-        } 
-        // Credit Nature: Vendors, Revenue, Equity, Liabilities
-        else {
-            return [
-                'debit'  => $vDr,
-                'credit' => $initialCr + $vCr
-            ];
-        }
+    /* ================= PROFIT & LOSS FIX ================= */
+    private function profitLoss($from, $to)
+    {
+        $revenue = ChartOfAccounts::where('account_type', 'revenue')->get()->map(function($a) use ($from, $to) {
+            $bal = $this->getAccountBalance($a->id, $from, $to);
+            return [$a->name, $this->fmt($bal['credit'] - $bal['debit'])];
+        })->filter(fn($r) => (float)str_replace(',', '', $r[1]) != 0);
+
+        $expenses = ChartOfAccounts::where('account_type', 'expenses')->get()->map(function($a) use ($from, $to) {
+            $bal = $this->getAccountBalance($a->id, $from, $to);
+            return [$a->name, $this->fmt($bal['debit'] - $bal['credit'])];
+        })->filter(fn($r) => (float)str_replace(',', '', $r[1]) != 0);
+
+        $totalRev = $revenue->sum(fn($r) => (float)str_replace(',', '', $r[1]));
+        $totalExp = $expenses->sum(fn($r) => (float)str_replace(',', '', $r[1]));
+
+        return collect([['REVENUE', '']])
+            ->concat($revenue)
+            ->concat([['EXPENSES', '']])
+            ->concat($expenses)
+            ->concat([['NET PROFIT/LOSS', $this->fmt($totalRev - $totalExp)]]);
     }
 
     /* ================= PARTY LEDGER (The Fix) ================= */
@@ -152,20 +158,18 @@ class AccountsReportController extends Controller
     {
         return ChartOfAccounts::where('account_type', 'customer')->get()
             ->map(function ($a) use ($to) {
-                // Calculate balance from start of time up to the 'To' date
-                $bal = $this->getAccountBalance($a->id, null, null, $to);
+                $bal = $this->getAccountBalance($a->id, null, $to); // Pass null for $from
                 $total = $bal['debit'] - $bal['credit'];
                 return [$a->name, $this->fmt($total)];
             })->filter(fn($r) => (float)str_replace(',', '', $r[1]) != 0);
     }
 
-    /* ================= PAYABLES (FIXED) ================= */
     private function payables($from, $to)
     {
         return ChartOfAccounts::where('account_type', 'vendor')->get()
             ->map(function ($a) use ($to) {
-                // Calculate balance from start of time up to the 'To' date
-                $bal = $this->getAccountBalance($a->id, null, null, $to);
+                $bal = $this->getAccountBalance($a->id, null, $to);
+                // Vendors are Credit-natured: Credit - Debit = Amount Owed
                 $total = $bal['credit'] - $bal['debit'];
                 return [$a->name, $this->fmt($total)];
             })->filter(fn($r) => (float)str_replace(',', '', $r[1]) != 0);
@@ -298,16 +302,6 @@ class AccountsReportController extends Controller
                 $total = $bal['debit'] - $bal['credit'];
                 return [$a->name, $this->fmt($total)];
             })->filter(fn($r) => (float)str_replace(',', '', $r[1]) != 0);
-    }
-
-    /* ================= PROFIT & LOSS ================= */
-    private function profitLoss($from, $to)
-    {
-        // Ensure these match your DB strings exactly
-        $revenueIds = ChartOfAccounts::where('account_type', 'revenue')->pluck('id');
-        $expenseIds = ChartOfAccounts::where('account_type', 'expenses')->pluck('id');
-
-        // ... rest of logic
     }
 
     /* ================= JOURNAL / DAY BOOK ================= */

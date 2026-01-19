@@ -21740,11 +21740,3 @@ input[type="number"] {
     -moz-appearance: textfield;
 }
 
-/* Prevent the multiple-select listbox from appearing before Select2 loads */
-.customization-select {
-	display: none !important;
-}
-/* Ensure the Select2 container is ready for the table layout */
-.select2-container {
-	width: 100% !important;
-}

@@ -50,7 +50,7 @@
                         </form>
                     </div>
                     <div class="modal-wrapper table-scroll">
-                        <table class="table table-bordered table-striped mb-0" id="cust-datatable-default">
+                        <table class="table table-bordered table-striped mb-0" id="datatable-default">
                             <thead>
                                 <tr>
                                     <th>S.NO</th>
@@ -119,6 +119,7 @@
                                         <option value="" selected>Select Account Type</option>
                                         <option value="customer">Customer</option>
                                         <option value="vendor">Vendor</option>
+                                        <option value="asset">Asset (Inventory/Fixed Assets)</option>
                                         <option value="cash">Cash</option>
                                         <option value="bank">Bank</option>
                                         <option value="expenses">Expenses</option>
@@ -262,6 +263,7 @@
     </div>
 
     <script>
+
         function editAccount(id) {
             fetch('/coa/' + id + '/edit')
                 .then(res => res.json())

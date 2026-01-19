@@ -18,7 +18,9 @@ return new class extends Migration
             $table->unsignedBigInteger('ac_dr_sid'); 
             $table->unsignedBigInteger('ac_cr_sid'); 
             $table->decimal('amount', 12, 2);
+            $table->string('reference')->nullable();
             $table->text('remarks')->nullable();
+            $table->string('description')->nullable();
             $table->json('attachments')->nullable();
             $table->timestamps();
             $table->softDeletes();
