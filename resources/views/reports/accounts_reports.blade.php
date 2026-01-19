@@ -61,7 +61,7 @@
 
                     <div class="col-md-4">
                         <label class="small fw-bold">Select Account (For Ledgers)</label>
-                        <select name="account_id" class="form-control select2">
+                        <select name="account_id" class="form-control select2-js">
                             <option value="">-- All Accounts --</option>
                             @foreach ($chartOfAccounts as $coa)
                                 <option value="{{ $coa->id }}" {{ request('account_id') == $coa->id ? 'selected' : '' }}>
@@ -198,4 +198,10 @@
         </div>
     </div>
 </div>
+
+<script>
+    $(document).ready(function () {
+        $('.select2-js').select2({ width: '100%', dropdownAutoWidth: true });
+    });
+</script>
 @endsection
