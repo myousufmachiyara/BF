@@ -7,6 +7,7 @@ use App\Models\SaleInvoiceItem;
 use App\Models\SaleItemCustomization;
 use App\Models\ChartOfAccounts;
 use App\Models\Product;
+use App\Models\Voucher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -26,63 +27,54 @@ class SaleInvoiceController extends Controller
     {
         return view('sales.create', [
             'products' => Product::get(),
-            'accounts' => ChartOfAccounts::where('account_type', 'customer')->get(), // or your logic
+            // Accounts for the "Customer Name" dropdown
+            'customers' => ChartOfAccounts::where('account_type', 'customer')->get(), 
+            
+            // Accounts for the "Deposit To" dropdown (Cash/Bank)
+            'paymentAccounts' => ChartOfAccounts::whereIn('account_type', ['cash', 'bank'])->get(),
         ]);
     }
 
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'date'         => 'required|date',
-            'account_id'   => 'required|exists:chart_of_accounts,id',
-            'type'         => 'required|in:cash,credit',
-            'discount'     => 'nullable|numeric|min:0',
-            'remarks'      => 'nullable|string',
-
-            'items'        => 'required|array|min:1',
-            'items.*.product_id'   => 'required|exists:products,id',
-            'items.*.sale_price'   => 'required|numeric|min:0',
-            'items.*.quantity'     => 'required|numeric|min:1',
-
-            // 🔥 Customization rules
-            'items.*.customizations'    => 'nullable|array',
-            'items.*.customizations.*'  => 'exists:products,id',
+            'date'               => 'required|date',
+            'account_id'         => 'required|exists:chart_of_accounts,id',
+            'type'               => 'required|in:cash,credit',
+            'discount'           => 'nullable|numeric|min:0',
+            'remarks'            => 'nullable|string',
+            'items'              => 'required|array|min:1',
+            'items.*.product_id' => 'required|exists:products,id',
+            'items.*.sale_price' => 'required|numeric|min:0',
+            'items.*.quantity'   => 'required|numeric|min:1',
+            'items.*.customizations'   => 'nullable|array',
+            'items.*.customizations.*' => 'exists:products,id',
+            // Payment receiving fields
+            'payment_account_id' => 'nullable|exists:chart_of_accounts,id',
+            'amount_received'    => 'nullable|numeric|min:0',
         ]);
 
         DB::beginTransaction();
-
         try {
-            Log::info('[SaleInvoice] Store started', [
-                'user_id' => Auth::id(),
-                'payload' => $validated,
-            ]);
-
-             $lastInvoice = SaleInvoice::withTrashed()
-            ->orderBy('id', 'desc')
-            ->first();
-
+            // Auto-generate Invoice Number
+            $lastInvoice = SaleInvoice::withTrashed()->orderBy('id', 'desc')->first();
             $nextNumber = $lastInvoice ? intval($lastInvoice->invoice_no) + 1 : 1;
-
             $invoiceNo = str_pad($nextNumber, 6, '0', STR_PAD_LEFT);
 
-            /* Create Invoice */
+            // 1. Create Invoice
             $invoice = SaleInvoice::create([
-                'invoice_no'       => $invoiceNo,
+                'invoice_no' => $invoiceNo,
                 'date'       => $validated['date'],
                 'account_id' => $validated['account_id'],
                 'type'       => $validated['type'],
                 'discount'   => $validated['discount'] ?? 0,
-                'remarks'    => $request->remarks,
+                'remarks'    => $validated['remarks'],
                 'created_by' => Auth::id(),
             ]);
 
-            Log::info('[SaleInvoice] Invoice created', [
-                'invoice_id' => $invoice->id,
-            ]);
-
-            /* Create Invoice Items */
-            foreach ($validated['items'] as $index => $item) {
-
+            // 2. Save Items & Track Net Total for Voucher validation
+            $totalBill = 0;
+            foreach ($validated['items'] as $item) {
                 $invoiceItem = SaleInvoiceItem::create([
                     'sale_invoice_id' => $invoice->id,
                     'product_id'      => $item['product_id'],
@@ -90,145 +82,145 @@ class SaleInvoiceController extends Controller
                     'quantity'        => $item['quantity'],
                     'discount'        => 0,
                 ]);
+                
+                $totalBill += ($item['sale_price'] * $item['quantity']);
 
-                Log::info('[SaleInvoiceItem] Item saved', [
-                    'invoice_item_id' => $invoiceItem->id,
-                    'product_id'      => $item['product_id'],
-                ]);
-
-                /* Save Customizations (OPTIONAL) */
                 if (!empty($item['customizations'])) {
-
                     foreach ($item['customizations'] as $customItemId) {
-
                         SaleItemCustomization::create([
-                            'sale_invoice_id'        => $invoice->id,
+                            'sale_invoice_id'       => $invoice->id,
                             'sale_invoice_items_id' => $invoiceItem->id,
                             'item_id'               => $customItemId,
-                        ]);
-
-                        Log::info('[SaleItemCustomization] Saved', [
-                            'invoice_id'        => $invoice->id,
-                            'invoice_item_id'   => $invoiceItem->id,
-                            'custom_item_id'    => $customItemId,
                         ]);
                     }
                 }
             }
 
+            // 3. Handle Payment Voucher
+            if ($request->filled('payment_account_id') && $request->amount_received > 0) {
+                Voucher::create([
+                    'voucher_type' => 'receipt',
+                    'date'         => $validated['date'],
+                    'ac_dr_sid'    => $validated['payment_account_id'], // Asset (Bank/Cash)
+                    'ac_cr_sid'    => $validated['account_id'],         // Customer (Liability/Revenue decrease)
+                    'amount'       => $validated['amount_received'],
+                    'remarks'      => "Payment received against Invoice #{$invoiceNo}. " . ($validated['remarks'] ?? ''),
+                    // 'reference_id' => $invoice->id, // Optional: for easier tracking
+                ]);
+            }
+
             DB::commit();
-
-            Log::info('[SaleInvoice] Transaction committed', [
-                'invoice_id' => $invoice->id,
-            ]);
-
-            return redirect()
-                ->route('sale_invoices.index')
-                ->with('success', 'Sale invoice created successfully.');
+            return redirect()->route('sale_invoices.index')->with('success', 'Sale Invoice and Payment processed.');
 
         } catch (\Throwable $e) {
-
             DB::rollBack();
-
-            Log::error('[SaleInvoice] Store failed', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-
-            return back()
-                ->withInput()
-                ->with('error', 'Error saving invoice.');
+            Log::error('[SaleInvoice] Store failed: ' . $e->getMessage());
+            return back()->withInput()->with('error', 'Error saving invoice.');
         }
     }
 
     public function edit($id)
     {
-        $invoice = SaleInvoice::with('items.product','items.customizations.item')->findOrFail($id);
+        $invoice = SaleInvoice::with(['items.customizations', 'account'])->findOrFail($id);
+        
+        // Fetch total already received for this invoice via Vouchers
+        $amountReceived = Voucher::where('ac_cr_sid', $invoice->account_id)
+            ->where('remarks', 'LIKE', "%Invoice #{$invoice->invoice_no}%")
+            ->sum('amount');
 
         return view('sales.edit', [
-            'invoice'   => $invoice,
-            'products'  => Product::get(),
-            'accounts'  => ChartOfAccounts::where('account_type', 'customer')->get(),
+            'invoice' => $invoice,
+            'products' => Product::get(),
+            'customers' => ChartOfAccounts::where('account_type', 'customer')->get(),
+            'paymentAccounts' => ChartOfAccounts::whereIn('account_type', ['cash', 'bank'])->get(),
+            'amountReceived' => $amountReceived,
         ]);
     }
 
     public function update(Request $request, $id)
     {
         $validated = $request->validate([
-            'date'       => 'required|date',
-            'account_id' => 'required|exists:chart_of_accounts,id',
-            'type'       => 'required|in:cash,credit',
-            'discount'   => 'nullable|numeric|min:0',
-            'remarks'    => 'nullable|string',
-
-            'items'      => 'required|array|min:1',
+            'date'               => 'required|date',
+            'account_id'         => 'required|exists:chart_of_accounts,id',
+            'type'               => 'required|in:cash,credit',
+            'discount'           => 'nullable|numeric|min:0',
+            'remarks'            => 'nullable|string',
+            'items'              => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.sale_price' => 'required|numeric|min:0',
             'items.*.quantity'   => 'required|numeric|min:1',
-
-            // 👇 customizations
             'items.*.customizations'   => 'nullable|array',
             'items.*.customizations.*' => 'exists:products,id',
+            // Payment fields
+            'payment_account_id' => 'nullable|exists:chart_of_accounts,id',
+            'amount_received'    => 'nullable|numeric|min:0',
         ]);
 
         DB::beginTransaction();
-
         try {
             $invoice = SaleInvoice::findOrFail($id);
+            $oldAccountId = $invoice->account_id;
 
-            // ✅ Update invoice
+            // 1. Update Invoice Basic Data
             $invoice->update([
                 'date'       => $validated['date'],
                 'account_id' => $validated['account_id'],
                 'type'       => $validated['type'],
                 'discount'   => $validated['discount'] ?? 0,
-                'remarks'    => $request->remarks,
+                'remarks'    => $validated['remarks'],
             ]);
 
-            // 🔥 Remove old items & customizations
+            // 2. VOUCHER LOGIC: Sync or Add
+            // Find all vouchers linked to this invoice via remarks
+            $existingVouchers = Voucher::where('remarks', 'LIKE', "%Invoice #{$invoice->invoice_no}%");
+
+            if ($oldAccountId != $validated['account_id']) {
+                // If customer changed, update ALL existing vouchers to the new customer ID
+                $existingVouchers->update(['ac_cr_sid' => $validated['account_id']]);
+            }
+
+            // 3. ADD NEW VOUCHER (If amount received now is entered)
+            if ($request->filled('payment_account_id') && $request->amount_received > 0) {
+                Voucher::create([
+                    'voucher_type' => 'receipt',
+                    'date'         => $validated['date'],
+                    'ac_dr_sid'    => $validated['payment_account_id'],
+                    'ac_cr_sid'    => $validated['account_id'],
+                    'amount'       => $validated['amount_received'],
+                    'remarks'      => "Payment received against Invoice #{$invoice->invoice_no}. " . $validated['remarks'],
+                ]);
+            }
+
+            // 4. Update Items (Delete & Re-insert)
             SaleItemCustomization::where('sale_invoice_id', $invoice->id)->delete();
             $invoice->items()->delete();
 
-            // ✅ Reinsert items + customizations
             foreach ($validated['items'] as $item) {
-
-                $invoiceItem = SaleInvoiceItem::create([
+                $invoiceItem =SaleInvoiceItem::create([
                     'sale_invoice_id' => $invoice->id,
                     'product_id'      => $item['product_id'],
                     'sale_price'      => $item['sale_price'],
                     'quantity'        => $item['quantity'],
                 ]);
 
-                // 👉 Save customizations (optional)
                 if (!empty($item['customizations'])) {
-                    foreach ($item['customizations'] as $customItemId) {
-                        SaleItemCustomization::create([
-                            'sale_invoice_id'        => $invoice->id,
+                    foreach ($item['customizations'] as $customId) {
+                       SaleItemCustomization::create([
+                            'sale_invoice_id'       => $invoice->id,
                             'sale_invoice_items_id' => $invoiceItem->id,
-                            'item_id'               => $customItemId,
+                            'item_id'               => $customId,
                         ]);
                     }
                 }
             }
 
             DB::commit();
-
-            return redirect()
-                ->route('sale_invoices.index')
-                ->with('success', 'Sale invoice updated successfully.');
+            return redirect()->route('sale_invoices.index')->with('success', 'Invoice and Ledger updated.');
 
         } catch (\Throwable $e) {
-
             DB::rollBack();
-
-            Log::error('[SaleInvoice] Update failed', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-
-            return back()
-                ->withInput()
-                ->with('error', 'Error updating invoice.');
+            Log::error($e->getMessage());
+            return back()->with('error', 'Update Failed: ' . $e->getMessage());
         }
     }
 
@@ -241,8 +233,16 @@ class SaleInvoiceController extends Controller
 
     public function print($id)
     {
+        // 1. Fetch Invoice with Relations
         $invoice = SaleInvoice::with(['account', 'items.product'])->findOrFail($id);
 
+        // 2. Fetch Amount Received from Vouchers
+        // We search the ac_cr_sid (Customer) and matching Invoice Number in remarks
+        $amountReceived = Voucher::where('ac_cr_sid', $invoice->account_id)
+            ->where('remarks', 'LIKE', "%Invoice #{$invoice->invoice_no}%")
+            ->sum('amount');
+
+        // 3. Initialize TCPDF
         $pdf = new \TCPDF();
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
@@ -270,9 +270,9 @@ class SaleInvoiceController extends Controller
 
         /* ---------------- Customer + Invoice Info ---------------- */
         $infoHtml = '
-        <table cellpadding="3" cellspacing="0" width="40%">
+        <table cellpadding="3" cellspacing="0" width="100%">
             <tr>
-                <td>
+                <td width="40%">
                     <table border="1" cellpadding="4" cellspacing="0" style="font-size:10px;">
                         <tr>
                             <td width="30%"><b>Customer</b></td>
@@ -288,6 +288,7 @@ class SaleInvoiceController extends Controller
                         </tr>
                     </table>
                 </td>
+                <td width="60%"></td>
             </tr>
         </table>';
 
@@ -306,50 +307,60 @@ class SaleInvoiceController extends Controller
 
         $count = 0;
         $totalQty = 0;
-        $totalAmount = 0;
+        $subTotal = 0;
 
         foreach ($invoice->items as $item) {
             $count++;
-
-            $discount = ($item->sale_price * ($item->discount ?? 0)) / 100;
-            $netPrice = $item->sale_price - $discount;
-            $lineTotal = $netPrice * $item->quantity;
+            // Calculate line total (Price * Qty)
+            $lineTotal = $item->sale_price * $item->quantity;
 
             $html .= '
             <tr>
                 <td>' . $count . '</td>
                 <td style="text-align:left">' . ($item->product->name ?? '-') . '</td>
                 <td>' . number_format($item->quantity, 2) . '</td>
-                <td>' . number_format($netPrice, 2) . '</td>
+                <td>' . number_format($item->sale_price, 2) . '</td>
                 <td>' . number_format($lineTotal, 2) . '</td>
             </tr>';
 
             $totalQty += $item->quantity;
-            $totalAmount += $lineTotal;
+            $subTotal += $lineTotal;
         }
 
+        // Calculations
+        $invoiceDiscount = $invoice->discount ?? 0;
+        $netTotal = $subTotal - $invoiceDiscount;
+        $balanceDue = $netTotal - $amountReceived;
+
+        // Footer of Table
         $html .= '
         <tr>
-            <td colspan="2" align="right"><b>Total</b></td>
+            <td colspan="2" align="right"><b>Total Items Qty</b></td>
             <td><b>' . number_format($totalQty, 2) . '</b></td>
-            <td></td>
-            <td><b>' . number_format($totalAmount, 2) . '</b></td>
+            <td align="right"><b>Sub Total</b></td>
+            <td><b>' . number_format($subTotal, 2) . '</b></td>
         </tr>';
 
-        if (!empty($invoice->discount)) {
+        if ($invoiceDiscount > 0) {
             $html .= '
             <tr>
-                <td colspan="4" align="right"><b>Invoice Discount</b></td>
-                <td>' . number_format($invoice->discount, 2) . '</td>
+                <td colspan="4" align="right"><b>Less: Discount</b></td>
+                <td>' . number_format($invoiceDiscount, 2) . '</td>
             </tr>';
-
-            $totalAmount -= $invoice->discount;
         }
 
         $html .= '
         <tr style="background-color:#f5f5f5;">
-            <td colspan="4" align="right"><b>Net Total</b></td>
-            <td><b>' . number_format($totalAmount, 2) . '</b></td>
+            <td colspan="4" align="right"><b>Net Payable</b></td>
+            <td><b>' . number_format($netTotal, 2) . '</b></td>
+        </tr>
+        <tr>
+            <td colspan="4" align="right"><b>Amount Received</b></td>
+            <td style="color:green;">' . number_format($amountReceived, 2) . '</td>
+        </tr>
+        <tr style="background-color:#f5f5f5;">
+            <td colspan="4" align="right"><b>Remaining Balance</b></td>
+            <td style="color:red;"><b>' . number_format($balanceDue, 2) . '</b></td>
         </tr>
         </table>';
 
@@ -362,23 +373,28 @@ class SaleInvoiceController extends Controller
         }
 
         /* ---------------- Footer Signatures ---------------- */
+        // Ensure footer doesn't break page
+        if ($pdf->GetY() > 250) {
+            $pdf->AddPage();
+        }
+
         $pdf->Ln(20);
         $lineWidth = 60;
         $yPosition = $pdf->GetY();
 
-        $pdf->Line(28, $yPosition, 20 + $lineWidth, $yPosition);
-        $pdf->Line(130, $yPosition, 120 + $lineWidth, $yPosition);
+        $pdf->Line(28, $yPosition, 28 + $lineWidth, $yPosition);
+        $pdf->Line(130, $yPosition, 130 + $lineWidth, $yPosition);
 
-        $pdf->Ln(5);
-        $pdf->SetFont('helvetica', 'B', 12);
+        $pdf->Ln(2);
+        $pdf->SetFont('helvetica', 'B', 10);
 
-        $pdf->SetXY(23, $yPosition);
-        $pdf->Cell($lineWidth, 10, 'Received By', 0, 0, 'C');
+        $pdf->SetXY(28, $yPosition + 2);
+        $pdf->Cell($lineWidth, 10, 'Customer Signature', 0, 0, 'C');
 
-        $pdf->SetXY(125, $yPosition);
-        $pdf->Cell($lineWidth, 10, 'Authorized By', 0, 0, 'C');
+        $pdf->SetXY(130, $yPosition + 2);
+        $pdf->Cell($lineWidth, 10, 'Authorized Signature', 0, 0, 'C');
 
-        return $pdf->Output('sale_invoice_' . $invoice->id . '.pdf', 'I');
+        return $pdf->Output('Invoice_' . $invoice->invoice_no . '.pdf', 'I');
     }
 
 }
