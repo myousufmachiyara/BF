@@ -14,6 +14,9 @@
         <li class="nav-item">
             <a class="nav-link {{ $tab==='CW'?'active':'' }}" href="{{ route('reports.sale', ['tab'=>'CW','from_date'=>$from,'to_date'=>$to]) }}">Customer Wise</a>
         </li>
+        <li class="nav-item">
+            <a class="nav-link {{ $tab==='PR'?'active':'' }}" href="{{ route('reports.sale', ['tab'=>'PR','from_date'=>$from,'to_date'=>$to]) }}">Profit Report</a>
+        </li>
     </ul>
 
     <div class="tab-content mt-3">
@@ -49,10 +52,11 @@
                             <td>{{ $row->date }}</td>
                             <td>{{ $row->invoice }}</td>
                             <td>{{ $row->customer }}</td>
-                            <td>{{ number_format($row->total,2) }}</td>
+                            {{-- Use 'revenue' here if you applied the controller fix above --}}
+                            <td>{{ number_format($row->revenue ?? $row->total, 2) }}</td>
                         </tr>
                     @empty
-                        <tr><td colspan="4" class="text-center text-muted">No sales found.</td></tr>
+                       <tr><td colspan="4" class="text-center text-muted">No sales found.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -203,6 +207,67 @@
             </table>
         </div>
 
+        {{-- PROFIT REPORT --}}
+        <div id="PR" class="tab-pane fade {{ $tab==='PR'?'show active':'' }}">
+            <form method="GET" action="{{ route('reports.sale') }}" class="row g-3 mb-3">
+                <input type="hidden" name="tab" value="PR">
+                <div class="col-md-3">
+                    <label>From Date</label>
+                    <input type="date" class="form-control" name="from_date" value="{{ $from }}">
+                </div>
+                <div class="col-md-3">
+                    <label>To Date</label>
+                    <input type="date" class="form-control" name="to_date" value="{{ $to }}">
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary w-100">Calculate Profit</button>
+                </div>
+            </form>
+
+            <table class="table table-bordered table-hover">
+                <thead class="table-primary">
+                    <tr>
+                        <th>Date</th>
+                        <th>Invoice #</th>
+                        <th>Customer</th>
+                        <th>Sale (Net)</th>
+                        <th>Landed Cost</th>
+                        <th>Profit</th>
+                        <th>Margin %</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse($sales as $row)
+                        <tr>
+                            <td>{{ $row->date }}</td>
+                            <td>{{ $row->invoice }}</td>
+                            <td>{{ $row->customer }}</td>
+                            <td>{{ number_format($row->revenue, 2) }}</td>
+                            <td>{{ number_format($row->cost, 2) }}</td>
+                            <td class="{{ $row->profit >= 0 ? 'text-success' : 'text-danger' }} fw-bold">
+                                {{ number_format($row->profit, 2) }}
+                            </td>
+                            <td>{{ number_format($row->margin, 1) }}%</td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="7" class="text-center">No data found.</td></tr>
+                    @endforelse
+                </tbody>
+                @if(count($sales))
+                <tfoot class="table-light fw-bold">
+                    <tr>
+                        <td colspan="3" class="text-end">Totals:</td>
+                        <td>{{ number_format($sales->sum('revenue'), 2) }}</td>
+                        <td>{{ number_format($sales->sum('cost'), 2) }}</td>
+                        <td class="text-primary">{{ number_format($sales->sum('profit'), 2) }}</td>
+                        <td>
+                            {{ $sales->sum('revenue') > 0 ? number_format(($sales->sum('profit') / $sales->sum('revenue')) * 100, 1) : 0 }}%
+                        </td>
+                    </tr>
+                </tfoot>
+                @endif
+            </table>
+        </div>
     </div>
 </div>
 @endsection

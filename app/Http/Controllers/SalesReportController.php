@@ -6,6 +6,8 @@ use Illuminate\Http\Request;
 use App\Models\SaleInvoice;
 use App\Models\SaleReturn;
 use App\Models\ChartOfAccounts;
+use App\Models\PurchaseInvoiceItem;
+use App\Models\PurchaseBiltyDetail;
 use Carbon\Carbon;
 
 class SalesReportController extends Controller
@@ -29,7 +31,6 @@ class SalesReportController extends Controller
                 ->whereBetween('date', [$from, $to])
                 ->get()
                 ->map(function ($sale) {
-
                     $total = $sale->items->sum(function ($item) {
                         return ($item->sale_price ?? $item->price) * $item->quantity;
                     });
@@ -38,7 +39,11 @@ class SalesReportController extends Controller
                         'date'     => $sale->date,
                         'invoice'  => $sale->invoice_no ?? $sale->id,
                         'customer' => $sale->account->name ?? '',
-                        'total'    => $total,
+                        'revenue'  => $total - ($sale->discount ?? 0), // Added this
+                        'total'    => $total, // Kept for safety
+                        'cost'     => 0,      // Placeholder to prevent Blade errors
+                        'profit'   => 0,      // Placeholder
+                        'margin'   => 0       // Placeholder
                     ];
                 });
         }
@@ -107,6 +112,57 @@ class SalesReportController extends Controller
                 ->values();
         }
 
+        /* ================= PROFIT REPORT (Optimized with Caching) ================= */
+        if ($tab === 'PR') {
+            $sales = SaleInvoice::with(['account', 'items'])
+                ->whereBetween('date', [$from, $to])
+                ->get()
+                ->map(function ($sale) {
+                    $invoiceRevenue = 0;
+                    $invoiceCost = 0;
+
+                    foreach ($sale->items as $item) {
+                        $pid = $item->product_id;
+                        $invoiceRevenue += ($item->sale_price ?? 0) * $item->quantity;
+
+                        // Cache the Landed Cost for each product to avoid heavy SQL in loops
+                        $avgLandedRate = \Cache::remember("avg_cost_prod_{$pid}", 86400, function () use ($pid) {
+                            // 1. Purchase Rate logic
+                            $pStats = PurchaseInvoiceItem::where('item_id', $pid)
+                                ->whereHas('invoice', fn ($q) => $q->whereNull('deleted_at'))
+                                ->selectRaw('SUM(quantity * price) as v, SUM(quantity) as q')
+                                ->first();
+                            $purchaseRate = ($pStats && $pStats->q > 0) ? ($pStats->v / $pStats->q) : 0;
+
+                            // 2. Bilty Rate logic
+                            $bTotal = PurchaseBiltyDetail::where('item_id', $pid)
+                                ->join('purchase_bilty', fn($j) => $j->on('purchase_bilty.id','purchase_bilty_details.bilty_id')->whereNull('deleted_at'))
+                                ->sum(\DB::raw('(purchase_bilty.bilty_amount / (SELECT SUM(quantity) FROM purchase_bilty_details d WHERE d.bilty_id = purchase_bilty.id)) * purchase_bilty_details.quantity'));
+
+                            $bQty = PurchaseBiltyDetail::where('item_id', $pid)
+                                ->join('purchase_bilty', fn($j) => $j->on('purchase_bilty.id','purchase_bilty_details.bilty_id')->whereNull('deleted_at'))
+                                ->sum('quantity');
+
+                            $biltyRate = ($bQty > 0) ? ($bTotal / $bQty) : 0;
+
+                            return $purchaseRate + $biltyRate;
+                        });
+
+                        $invoiceCost += ($avgLandedRate * $item->quantity);
+                    }
+
+                    $netRevenue = $invoiceRevenue - ($sale->discount ?? 0);
+                    return (object)[
+                        'date'     => $sale->date,
+                        'invoice'  => $sale->invoice_no,
+                        'customer' => $sale->account->name ?? 'N/A',
+                        'revenue'  => $netRevenue,
+                        'cost'     => $invoiceCost,
+                        'profit'   => $netRevenue - $invoiceCost,
+                        'margin'   => $netRevenue > 0 ? (($netRevenue - $invoiceCost) / $netRevenue) * 100 : 0
+                    ];
+                });
+        }
 
         $customers = ChartOfAccounts::where('account_type', 'customer')->get();
 
