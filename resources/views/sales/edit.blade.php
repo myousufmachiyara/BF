@@ -71,27 +71,26 @@
                     @foreach($products as $product)
                       <option value="{{ $product->id }}" 
                         data-price="{{ $product->selling_price }}"
+                        data-stock="{{ $product->real_time_stock }}"
                         {{ $item->product_id == $product->id ? 'selected' : '' }}>
                         {{ $product->name }}
                       </option>
                     @endforeach
                   </select>
+                  <div class="stock-label" style="font-size: 11px; font-weight: bold; margin-top: 2px;"></div>
                 </td>
                 <td>
                   <select name="items[{{ $i }}][customizations][]" class="form-control select2-js customization-select" multiple>
                     @foreach($products as $product)
-                      <option value="{{ $product->id }}"
+                      <option value="{{ $product->id }}" 
+                        data-stock="{{ $product->real_time_stock }}"
                         {{ $item->customizations->pluck('item_id')->contains($product->id) ? 'selected' : '' }}>
-                        {{ $product->name }}
+                        {{ $product->name }} (Stock: {{ $product->real_time_stock }})
                       </option>
                     @endforeach
                   </select>
                 </td>
-                <td><input type="number" name="items[{{ $i }}][sale_price]" class="form-control sale-price" step="any" value="{{ $item->sale_price }}" required></td>
-                <td><input type="number" name="items[{{ $i }}][quantity]" class="form-control quantity" step="any" value="{{ $item->quantity }}" required></td>
-                <td><input type="number" class="form-control row-total" value="{{ $item->sale_price * $item->quantity }}" readonly></td>               
-                <td><button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
-              </tr>
+                </tr>
               @endforeach
             </tbody>
           </table>
@@ -162,19 +161,57 @@
       // Initialize Select2 for standard selects outside the table
       $('.select2-js').not('#itemTable select').select2({ width: '100%' });
 
-      // Initialize existing rows
-      $('#itemTable tbody tr').each(function () {
-          initRowSelect2($(this));
-          calcRowTotal($(this));
-      });
+      // 1. Initialize existing rows
+    $('#itemTable tbody tr').each(function () {
+        const row = $(this);
+        initRowSelect2(row);
+        calcRowTotal(row);
+        // Trigger stock label update for existing items
+        updateStockLabel(row.find('.product-select'));
+    });
 
-      // Product change handler
-      $(document).on('change', '.product-select', function () {
-          const row = $(this).closest('tr');
-          const productPrice = $(this).find(':selected').data('price') || 0;
-          row.find('.sale-price').val(productPrice);
-          calcRowTotal(row);
-      });
+    // 2. Focus Fix for Select2
+    $(document).on('select2:open', function(e) {
+        setTimeout(() => {
+            const searchField = document.querySelector('.select2-container--open .select2-search__field');
+            if (searchField) { searchField.focus(); }
+        }, 50); 
+    });
+
+    // 3. Clear search on multiple select
+    $(document).on('select2:select', '.customization-select', function (e) {
+        $(this).parent().find('.select2-search__field').val('').trigger('input');
+    });
+
+    // 4. Product change handler (Stock + Price)
+    $(document).on('change', '.product-select', function () {
+        const row = $(this).closest('tr');
+        const option = $(this).find(':selected');
+        
+        // Update Price
+        const productPrice = option.data('price') || 0;
+        row.find('.sale-price').val(productPrice);
+        
+        // Update Stock Label
+        updateStockLabel($(this));
+        
+        calcRowTotal(row);
+    });
+
+    function updateStockLabel(selectElement) {
+        const row = selectElement.closest('tr');
+        const option = selectElement.find(':selected');
+        const stock = parseFloat(option.data('stock'));
+        const label = row.find('.stock-label');
+
+        if (!selectElement.val()) {
+            label.text('');
+            return;
+        }
+
+        label.text('Stock: ' + stock);
+        label.css('color', stock <= 0 ? 'red' : 'green');
+    }
 
       // Price / Qty / Discount change
       $(document).on('input', '.sale-price, .quantity, #discountInput', function () {
@@ -211,14 +248,21 @@
             <select name="items[${idx}][product_id]" class="form-control product-select" required>
               <option value="">Select Product</option>
               @foreach($products as $product)
-                <option value="{{ $product->id }}" data-price="{{ $product->selling_price }}">{{ $product->name }}</option>
+                <option value="{{ $product->id }}" 
+                        data-price="{{ $product->selling_price }}" 
+                        data-stock="{{ $product->real_time_stock }}">
+                    {{ $product->name }}
+                </option>
               @endforeach
             </select>
+            <div class="stock-label" style="font-size: 11px; font-weight: bold; margin-top: 2px;"></div>
           </td>
           <td>
             <select name="items[${idx}][customizations][]" multiple class="form-control customization-select">
               @foreach($products as $product)
-                <option value="{{ $product->id }}">{{ $product->name }}</option>
+                <option value="{{ $product->id }}" data-stock="{{ $product->real_time_stock }}">
+                    {{ $product->name }} (Stock: {{ $product->real_time_stock }})
+                </option>
               @endforeach
             </select>
           </td>
