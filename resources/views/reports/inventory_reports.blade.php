@@ -87,11 +87,11 @@
 
                     @forelse($itemLedger as $row)
                         <tr>
-                            <td>{{ $row['date'] }}</td>
-                            <td>{{ $row['type'] }}</td>
-                            <td>{{ $row['description'] }}</td>
-                            <td class="text-success">{{ $row['qty_in'] }}</td>
-                            <td class="text-danger">{{ $row['qty_out'] }}</td>
+                            <td>{{ $row->date }}</td>
+                            <td>{{ $row->type }}</td>
+                            <td>{{ $row->description }}</td>
+                            <td class="text-success">{{ $row->qty_in }}</td>
+                            <td class="text-danger">{{ $row->qty_out }}</td>
                         </tr>
                     @empty
                         <tr>

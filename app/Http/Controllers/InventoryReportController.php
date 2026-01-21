@@ -4,209 +4,130 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Product;
-use App\Models\PurchaseInvoiceItem;
-use App\Models\PurchaseReturnItem;
-use App\Models\SaleInvoiceItem;
-use App\Models\SaleReturnItem;
-use App\Models\PurchaseBilty;
-use App\Models\PurchaseBiltyDetail;
+use Illuminate\Support\Facades\DB;
 
 class InventoryReportController extends Controller
 {
     public function inventoryReports(Request $request)
     {
-        $tab  = $request->tab ?? 'IL';
-        $from = $request->from_date ?? now()->startOfMonth()->toDateString();
-        $to   = $request->to_date ?? now()->toDateString();
+        $tab = $request->get('tab', 'IL');
+        $itemId = $request->get('item_id'); 
+        $from = $request->get('from_date', date('Y-m-01'));
+        $to = $request->get('to_date', date('Y-m-d'));
+        $costingMethod = $request->get('costing_method', 'avg');
 
-        $productId = $request->item_id;
-
-        $products    = Product::orderBy('name')->get();
-        $itemLedger  = collect();
+        $products = Product::orderBy('name', 'asc')->get();
+        
+        $itemLedger = collect();
+        $openingQty = 0;
         $stockInHand = collect();
-        $openingQty  = 0;
 
-        /* ================= OPENING BALANCE ================= */
-        if ($productId) {
-            $openingQty =
-                PurchaseInvoiceItem::where('item_id', $productId)
-                    ->whereHas('invoice', fn ($q) =>
-                        $q->whereDate('invoice_date', '<', $from)
-                    )
-                    ->sum('quantity')
+        // ================= ITEM LEDGER (Specific Product) =================
+        if ($tab == 'IL' && $itemId) {
+            
+            // 1. Calculate Opening Balance (Purchases - Sales - Customizations) before $from date
+            $opPurchase = DB::table('purchase_invoice_items')
+                ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
+                ->where('purchase_invoice_items.item_id', $itemId)
+                ->where('purchase_invoices.invoice_date', '<', $from)
+                ->sum('purchase_invoice_items.quantity');
 
-                - PurchaseReturnItem::where('item_id', $productId)
-                    ->whereHas('return', fn ($q) =>
-                        $q->whereDate('return_date', '<', $from)
-                    )
-                    ->sum('quantity')
+            $opSale = DB::table('sale_invoice_items')
+                ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
+                ->where('sale_invoice_items.product_id', $itemId)
+                ->where('sale_invoices.date', '<', $from)
+                ->sum('sale_invoice_items.quantity');
 
-                - SaleInvoiceItem::where('product_id', $productId)
-                    ->whereHas('saleInvoice', fn ($q) =>
-                        $q->whereDate('date', '<', $from)
-                    )
-                    ->sum('quantity')
+            $opCustom = DB::table('sale_item_customization')
+                ->join('sale_invoices', 'sale_item_customization.sale_invoice_id', '=', 'sale_invoices.id')
+                ->where('sale_item_customization.item_id', $itemId)
+                ->where('sale_invoices.date', '<', $from)
+                ->count(); // Each customization row counts as 1
 
-                + SaleReturnItem::where('product_id', $productId)
-                    ->whereHas('saleReturn', fn ($q) =>
-                        $q->whereDate('return_date', '<', $from)
-                    )
-                    ->sum('qty');
+            $openingQty = $opPurchase - $opSale - $opCustom;
+
+            // 2. Combine Transactions using Triple UNION
+            
+            // SOURCE 1: Purchases (Stock In)
+            $purchases = DB::table('purchase_invoice_items')
+                ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
+                ->select(
+                    'purchase_invoices.invoice_date as date',
+                    DB::raw("'Purchase' as type"),
+                    'purchase_invoices.invoice_no as description',
+                    'purchase_invoice_items.quantity as qty_in',
+                    DB::raw("0 as qty_out")
+                )
+                ->where('purchase_invoice_items.item_id', $itemId)
+                ->whereBetween('purchase_invoices.invoice_date', [$from, $to]);
+
+            // SOURCE 2: Customizations (Stock Out)
+            $customizations = DB::table('sale_item_customization')
+                ->join('sale_invoices', 'sale_item_customization.sale_invoice_id', '=', 'sale_invoices.id')
+                ->select(
+                    'sale_invoices.date as date',
+                    DB::raw("'Customization' as type"),
+                    'sale_invoices.invoice_no as description',
+                    DB::raw("0 as qty_in"),
+                    DB::raw("1 as qty_out")
+                )
+                ->where('sale_item_customization.item_id', $itemId)
+                ->whereBetween('sale_invoices.date', [$from, $to]);
+
+            // SOURCE 3: Standard Sales (Stock Out)
+            $itemLedger = DB::table('sale_invoice_items')
+                ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
+                ->select(
+                    'sale_invoices.date as date',
+                    DB::raw("'Sale' as type"),
+                    'sale_invoices.invoice_no as description',
+                    DB::raw("0 as qty_in"),
+                    'sale_invoice_items.quantity as qty_out'
+                )
+                ->where('sale_invoice_items.product_id', $itemId)
+                ->whereBetween('sale_invoices.date', [$from, $to])
+                ->union($purchases)
+                ->union($customizations)
+                ->orderBy('date', 'asc')
+                ->get();
         }
 
-        /* ================= ITEM LEDGER ================= */
-        if ($tab === 'IL' && $productId) {
+        // ================= STOCK IN HAND (Current Snapshot) =================
+        if ($tab == 'SR') {
+            $query = Product::query();
+            if ($itemId) $query->where('id', $itemId);
 
-            $itemLedger = collect()
+            $stockInHand = $query->get()->map(function ($product) use ($costingMethod) {
+                $tIn = DB::table('purchase_invoice_items')->where('item_id', $product->id)->sum('quantity');
+                $tOut = DB::table('sale_invoice_items')->where('product_id', $product->id)->sum('quantity');
+                $tCustom = DB::table('sale_item_customization')->where('item_id', $product->id)->count();
+                
+                $qty = $tIn - $tOut - $tCustom;
 
-                ->merge(
-                    PurchaseInvoiceItem::where('item_id', $productId)
-                        ->whereHas('invoice', fn ($q) =>
-                            $q->whereBetween('invoice_date', [$from, $to])
-                        )
-                        ->with('invoice')
-                        ->get()
-                        ->map(fn ($r) => [
-                            'date'        => $r->invoice->invoice_date,
-                            'type'        => 'Purchase',
-                            'description' => 'Bill #'.($r->invoice->bill_no ?? $r->invoice->invoice_no),
-                            'qty_in'      => $r->quantity,
-                            'qty_out'     => 0,
-                        ])
-                )
+                // Price/Costing Logic
+                if ($costingMethod == 'latest') {
+                    $price = DB::table('purchase_invoice_items')
+                        ->where('item_id', $product->id)
+                        ->latest('id')
+                        ->value('price') ?? 0;
+                } else {
+                    $price = DB::table('purchase_invoice_items')
+                        ->where('item_id', $product->id)
+                        ->avg('price') ?? 0;
+                }
 
-                ->merge(
-                    PurchaseReturnItem::where('item_id', $productId)
-                        ->whereHas('return', fn ($q) =>
-                            $q->whereBetween('return_date', [$from, $to])
-                        )
-                        ->with('return')
-                        ->get()
-                        ->map(fn ($r) => [
-                            'date'        => $r->return->return_date,
-                            'type'        => 'Purchase Return',
-                            'description' => 'Return #'.$r->return->invoice_no,
-                            'qty_in'      => 0,
-                            'qty_out'     => $r->quantity,
-                        ])
-                )
-
-                ->merge(
-                    SaleInvoiceItem::where('product_id', $productId)
-                        ->whereHas('saleInvoice', fn ($q) =>
-                            $q->whereBetween('date', [$from, $to])
-                        )
-                        ->with('saleInvoice')
-                        ->get()
-                        ->map(fn ($r) => [
-                            'date'        => $r->saleInvoice->date,
-                            'type'        => 'Sale',
-                            'description' => 'Invoice #'.$r->saleInvoice->invoice_no,
-                            'qty_in'      => 0,
-                            'qty_out'     => $r->quantity,
-                        ])
-                )
-
-                ->merge(
-                    SaleReturnItem::where('product_id', $productId)
-                        ->whereHas('saleReturn', fn ($q) =>
-                            $q->whereBetween('return_date', [$from, $to])
-                        )
-                        ->with('saleReturn')
-                        ->get()
-                        ->map(fn ($r) => [
-                            'date'        => $r->saleReturn->return_date,
-                            'type'        => 'Sale Return',
-                            'description' => 'Return #'.$r->saleReturn->invoice_no,
-                            'qty_in'      => $r->qty,
-                            'qty_out'     => 0,
-                        ])
-                )
-
-                ->sortBy('date')
-                ->values();
+                return [
+                    'product' => $product->name,
+                    'quantity' => $qty,
+                    'price' => $price,
+                    'total' => $qty * $price
+                ];
+            });
         }
-
-        /* ================= STOCK IN HAND ================= */
-/* ================= STOCK IN HAND (Corrected) ================= */
-if ($tab === 'SR') {
-    $costing = $request->costing_method ?? 'avg';
-    $items = $productId ? Product::where('id', $productId)->get() : $products;
-
-    foreach ($items as $product) {
-        // 1. Calculate Quantities
-        $purchaseQty = PurchaseInvoiceItem::where('item_id', $product->id)
-            ->whereHas('invoice', fn ($q) => $q->whereNull('deleted_at'))->sum('quantity');
-
-        $purchaseReturnQty = PurchaseReturnItem::where('item_id', $product->id)
-            ->whereHas('return', fn ($q) => $q->whereNull('deleted_at'))->sum('quantity');
-
-        $saleQty = SaleInvoiceItem::where('product_id', $product->id)
-            ->whereHas('saleInvoice', fn ($q) => $q->whereNull('deleted_at'))->sum('quantity');
-
-        $saleReturnQty = SaleReturnItem::where('product_id', $product->id)
-            ->whereHas('saleReturn', fn ($q) => $q->whereNull('deleted_at'))->sum('qty');
-
-        // Subtract items consumed via customizations
-        $customConsumption = \App\Models\SaleItemCustomization::where('item_id', $product->id)
-            ->whereHas('saleInvoice', fn ($q) => $q->whereNull('deleted_at'))
-            ->join('sale_invoice_items', 'sale_item_customization.sale_invoice_items_id', '=', 'sale_invoice_items.id')
-            ->sum('sale_invoice_items.quantity');
-
-        $qty = $purchaseQty - $purchaseReturnQty - $saleQty + $saleReturnQty - $customConsumption;
-
-        // Skip products with no stock
-        if ($qty <= 0) continue;
-
-        /* 2. CALCULATE PURCHASE RATE */
-        $purchaseQuery = PurchaseInvoiceItem::where('item_id', $product->id)
-            ->whereHas('invoice', fn ($q) => $q->whereNull('deleted_at'));
-
-        $purchaseRate = match ($costing) {
-            'max'    => $purchaseQuery->max('price') ?? 0,
-            'min'    => $purchaseQuery->min('price') ?? 0,
-            'latest' => optional($purchaseQuery->latest('id')->first())->price ?? 0,
-            default  => ($r = $purchaseQuery->selectRaw('SUM(quantity * price) v, SUM(quantity) q')->first()) 
-                        && $r->q > 0 ? $r->v / $r->q : 0
-        };
-
-        /* 3. CALCULATE BILTY RATE */
-        $biltyTotal = \App\Models\PurchaseBiltyDetail::where('purchase_bilty_details.item_id', $product->id)
-            ->join('purchase_bilty', function ($join) {
-                $join->on('purchase_bilty.id', '=', 'purchase_bilty_details.bilty_id')
-                    ->whereNull('purchase_bilty.deleted_at');
-            })
-            ->sum(\DB::raw('(purchase_bilty.bilty_amount / (SELECT SUM(quantity) FROM purchase_bilty_details d WHERE d.bilty_id = purchase_bilty.id)) * purchase_bilty_details.quantity'));
-
-        $biltyQtyTotal = \App\Models\PurchaseBiltyDetail::where('purchase_bilty_details.item_id', $product->id)
-            ->join('purchase_bilty', function ($join) {
-                $join->on('purchase_bilty.id', '=', 'purchase_bilty_details.bilty_id')
-                    ->whereNull('purchase_bilty.deleted_at');
-            })
-            ->sum('purchase_bilty_details.quantity');
-
-        $biltyRate = $biltyQtyTotal > 0 ? $biltyTotal / $biltyQtyTotal : 0;
-
-        /* 4. FINAL LANDED COST */
-        $finalRate = $purchaseRate + $biltyRate;
-
-        $stockInHand->push([
-            'product'  => $product->name,
-            'quantity' => $qty,
-            'price'    => round($finalRate, 2),
-            'total'    => round($qty * $finalRate, 2),
-        ]);
-    }
-}
 
         return view('reports.inventory_reports', compact(
-            'products',
-            'tab',
-            'itemLedger',
-            'stockInHand',
-            'from',
-            'to',
-            'openingQty'
+            'products', 'itemLedger', 'openingQty', 
+            'stockInHand', 'tab', 'from', 'to'
         ));
     }
 }
