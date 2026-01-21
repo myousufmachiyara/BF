@@ -69,11 +69,17 @@
                   <select name="items[{{ $i }}][product_id]" class="form-control select2-js product-select" required>
                     <option value="">Select Product</option>
                     @foreach($products as $product)
+                      @php
+                        // logic: if this product is the one selected in THIS row, 
+                        // show its stock + what is already on this invoice.
+                        $isCurrentProduct = ($item->product_id == $product->id);
+                        $displayStock = $product->real_time_stock + ($isCurrentProduct ? $item->quantity : 0);
+                      @endphp
                       <option value="{{ $product->id }}" 
-                        data-price="{{ $product->selling_price }}"
-                        data-stock="{{ $product->real_time_stock }}"
-                        {{ $item->product_id == $product->id ? 'selected' : '' }}>
-                        {{ $product->name }}
+                              data-price="{{ $product->selling_price }}"
+                              data-stock="{{ $displayStock }}" 
+                              {{ $isCurrentProduct ? 'selected' : '' }}>
+                        {{ $product->name }} (Stock: {{ $displayStock }})
                       </option>
                     @endforeach
                   </select>
@@ -82,15 +88,18 @@
                 <td>
                   <select name="items[{{ $i }}][customizations][]" class="form-control select2-js customization-select" multiple>
                     @foreach($products as $product)
-                      <option value="{{ $product->id }}" 
-                        data-stock="{{ $product->real_time_stock }}"
+                      <option value="{{ $product->id }}"
                         {{ $item->customizations->pluck('item_id')->contains($product->id) ? 'selected' : '' }}>
                         {{ $product->name }} (Stock: {{ $product->real_time_stock }})
                       </option>
                     @endforeach
                   </select>
                 </td>
-                </tr>
+                <td><input type="number" name="items[{{ $i }}][sale_price]" class="form-control sale-price" step="any" value="{{ $item->sale_price }}" required></td>
+                <td><input type="number" name="items[{{ $i }}][quantity]" class="form-control quantity" step="any" value="{{ $item->quantity }}" required></td>
+                <td><input type="number" class="form-control row-total" value="{{ $item->sale_price * $item->quantity }}" readonly></td>               
+                <td><button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+              </tr>
               @endforeach
             </tbody>
           </table>
@@ -155,53 +164,82 @@
 </div>
 
 <script>
-  let rowIndex = {{ $invoice->items->count() }};
+    let rowIndex = {{ $invoice->items->count() }};
 
-  $(document).ready(function () {
-      // Initialize Select2 for standard selects outside the table
-      $('.select2-js').not('#itemTable select').select2({ width: '100%' });
+    $(document).ready(function () {
+        // 1. Initialize standard Select2 (for Customer, Type, etc.)
+        $('.select2-js').not('#itemTable select').select2({ width: '100%' });
 
-      // 1. Initialize existing rows
-    $('#itemTable tbody tr').each(function () {
-        const row = $(this);
-        initRowSelect2(row);
-        calcRowTotal(row);
-        // Trigger stock label update for existing items
-        updateStockLabel(row.find('.product-select'));
+        // 2. Initialize existing table rows on page load
+        $('#itemTable tbody tr').each(function () {
+            const row = $(this);
+            initRowSelect2(row);
+            calcRowTotal(row);
+            updateStockLabel(row.find('.product-select')); // Show stock for existing items
+        });
+
+        // 3. Select2 Search Focus Fix
+        $(document).on('select2:open', function(e) {
+            setTimeout(() => {
+                const searchField = document.querySelector('.select2-container--open .select2-search__field');
+                if (searchField) { searchField.focus(); }
+            }, 50); 
+        });
+
+        // 4. Product Change: Update Price & Stock Label
+        $(document).on('change', '.product-select', function () {
+            const row = $(this).closest('tr');
+            const option = $(this).find(':selected');
+            
+            // Auto-fill price from data-price attribute
+            const productPrice = option.data('price') || 0;
+            row.find('.sale-price').val(productPrice);
+            
+            // Update the Stock display
+            updateStockLabel($(this));
+            calcRowTotal(row);
+        });
+
+        // 5. Quantity Stock Warning (Visual Red Border if over-selling)
+        $(document).on('input', '.quantity', function () {
+            const row = $(this).closest('tr');
+            const selectedProduct = row.find('.product-select :selected');
+            
+            // This is the (RealTime Stock + Original Invoice Qty)
+            const stockAvailable = parseFloat(selectedProduct.data('stock')) || 0;
+            const qtyInput = parseFloat($(this).val()) || 0;
+
+            if (qtyInput > stockAvailable) {
+                $(this).css('border', '2px solid red');
+                // Optional: Show a small tooltip or text warning
+            } else {
+                $(this).css('border', '');
+            }
+            calcRowTotal(row);
+        });
+
+        // 6. Global Listeners for Price & Discount
+        $(document).on('input', '.sale-price, #discountInput', function () {
+            if($(this).hasClass('sale-price')){
+                calcRowTotal($(this).closest('tr'));
+            } else {
+                calcTotal();
+            }
+        });
+
+        // Initial Calculation
+        calcTotal();
     });
 
-    // 2. Focus Fix for Select2
-    $(document).on('select2:open', function(e) {
-        setTimeout(() => {
-            const searchField = document.querySelector('.select2-container--open .select2-search__field');
-            if (searchField) { searchField.focus(); }
-        }, 50); 
-    });
-
-    // 3. Clear search on multiple select
-    $(document).on('select2:select', '.customization-select', function (e) {
-        $(this).parent().find('.select2-search__field').val('').trigger('input');
-    });
-
-    // 4. Product change handler (Stock + Price)
-    $(document).on('change', '.product-select', function () {
-        const row = $(this).closest('tr');
-        const option = $(this).find(':selected');
-        
-        // Update Price
-        const productPrice = option.data('price') || 0;
-        row.find('.sale-price').val(productPrice);
-        
-        // Update Stock Label
-        updateStockLabel($(this));
-        
-        calcRowTotal(row);
-    });
-
+    /**
+     * Updates the Stock text and color below the product dropdown
+     */
     function updateStockLabel(selectElement) {
         const row = selectElement.closest('tr');
         const option = selectElement.find(':selected');
-        const stock = parseFloat(option.data('stock'));
+        
+        // Get the stock value we calculated in the Blade (RealTime + This Invoice Qty)
+        const stockAvailable = parseFloat(option.data('stock')) || 0;
         const label = row.find('.stock-label');
 
         if (!selectElement.val()) {
@@ -209,103 +247,97 @@
             return;
         }
 
-        label.text('Stock: ' + stock);
-        label.css('color', stock <= 0 ? 'red' : 'green');
+        label.text('Available: ' + stockAvailable);
+        
+        // UI Feedback
+        if (stockAvailable <= 0) {
+            label.css('color', 'red');
+        } else if (stockAvailable < 5) {
+            label.css('color', 'orange'); // Low stock warning
+        } else {
+            label.css('color', 'green');
+        }
     }
 
-      // Price / Qty / Discount change
-      $(document).on('input', '.sale-price, .quantity, #discountInput', function () {
-          if($(this).hasClass('sale-price') || $(this).hasClass('quantity')){
-            calcRowTotal($(this).closest('tr'));
-          } else {
+    /**
+     * Standard Row Initialization for Select2
+     */
+    function initRowSelect2(row) {
+        row.find('.product-select').select2({ width: '100%' });
+        row.find('.customization-select').select2({
+            width: '100%',
+            placeholder: "Select customizations...",
+            closeOnSelect: false
+        });
+    }
+
+    /*** Add New Row Functionality */
+    function addRow() {
+        const idx = rowIndex++;
+        const rowHtml = `
+            <tr>
+                <td>
+                    <select name="items[${idx}][product_id]" class="form-control product-select" required>
+                        <option value="">Select Product</option>
+                        @foreach($products as $product)
+                            <option value="{{ $product->id }}" 
+                                    data-price="{{ $product->selling_price }}" 
+                                    data-stock="{{ $product->real_time_stock }}">
+                                {{ $product->name }} (Stock: {{ $product->real_time_stock }})
+                            </option>
+                        @endforeach
+                    </select>
+                    <div class="stock-label" style="font-size: 11px; font-weight: bold; margin-top: 2px;"></div>
+                </td>
+                <td>
+                    <select name="items[${idx}][customizations][]" multiple class="form-control customization-select">
+                        @foreach($products as $product)
+                            <option value="{{ $product->id }}" data-stock="{{ $product->real_time_stock }}">
+                                {{ $product->name }} (Stock: {{ $product->real_time_stock }})
+                            </option>
+                        @endforeach
+                    </select>
+                </td>
+                <td><input type="number" name="items[${idx}][sale_price]" class="form-control sale-price" step="any" required></td>
+                <td><input type="number" name="items[${idx}][quantity]" class="form-control quantity" step="any" required></td>
+                <td><input type="number" class="form-control row-total" readonly></td>
+                <td><button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+            </tr>`;
+
+        $('#itemTable tbody').append(rowHtml);
+        const $newRow = $('#itemTable tbody tr').last();
+        initRowSelect2($newRow);
+    }
+
+    function removeRow(btn) {
+        if ($('#itemTable tbody tr').length > 1) {
+            $(btn).closest('tr').remove();
             calcTotal();
-          }
-      });
+        }
+    }
 
-      calcTotal();
-  });
+    function calcRowTotal(row) {
+        const price = parseFloat(row.find('.sale-price').val()) || 0;
+        const qty = parseFloat(row.find('.quantity').val()) || 0;
+        row.find('.row-total').val((price * qty).toFixed(2));
+        calcTotal();
+    }
 
-  /**
-   * Initialize Select2 for a row
-   */
-  function initRowSelect2(row) {
-      row.find('.product-select').select2({ width: '100%' });
-      row.find('.customization-select').select2({
-          width: '100%',
-          placeholder: "Select customizations...",
-          closeOnSelect: false
-      });
-  }
+    function calcTotal() {
+        let total = 0;
+        $('.row-total').each(function () {
+            total += parseFloat($(this).val()) || 0;
+        });
 
-  /**
-   * Add New Row
-   */
-  function addRow() {
-      const idx = rowIndex++;
-      const rowHtml = `
-        <tr>
-          <td>
-            <select name="items[${idx}][product_id]" class="form-control product-select" required>
-              <option value="">Select Product</option>
-              @foreach($products as $product)
-                <option value="{{ $product->id }}" 
-                        data-price="{{ $product->selling_price }}" 
-                        data-stock="{{ $product->real_time_stock }}">
-                    {{ $product->name }}
-                </option>
-              @endforeach
-            </select>
-            <div class="stock-label" style="font-size: 11px; font-weight: bold; margin-top: 2px;"></div>
-          </td>
-          <td>
-            <select name="items[${idx}][customizations][]" multiple class="form-control customization-select">
-              @foreach($products as $product)
-                <option value="{{ $product->id }}" data-stock="{{ $product->real_time_stock }}">
-                    {{ $product->name }} (Stock: {{ $product->real_time_stock }})
-                </option>
-              @endforeach
-            </select>
-          </td>
-          <td><input type="number" name="items[${idx}][sale_price]" class="form-control sale-price" step="any" required></td>
-          <td><input type="number" name="items[${idx}][quantity]" class="form-control quantity" step="any" required></td>
-          <td><input type="number" class="form-control row-total" readonly></td>
-          <td><button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
-        </tr>`;
+        const discount = parseFloat($('#discountInput').val()) || 0;
+        const netAmount = Math.max(0, total - discount);
+        const alreadyPaid = parseFloat($('#amountReceivedHidden').val()) || 0;
 
-      $('#itemTable tbody').append(rowHtml);
-      const $newRow = $('#itemTable tbody tr').last();
-      initRowSelect2($newRow);
-  }
-
-  function removeRow(btn) {
-      if ($('#itemTable tbody tr').length > 1) {
-          $(btn).closest('tr').remove();
-          calcTotal();
-      }
-  }
-
-  function calcRowTotal(row) {
-      const price = parseFloat(row.find('.sale-price').val()) || 0;
-      const qty = parseFloat(row.find('.quantity').val()) || 0;
-      row.find('.row-total').val((price * qty).toFixed(2));
-      calcTotal();
-  }
-
-  function calcTotal() {
-      let total = 0;
-      $('.row-total').each(function () {
-          total += parseFloat($(this).val()) || 0;
-      });
-
-      const discount = parseFloat($('#discountInput').val()) || 0;
-      const netAmount = Math.max(0, total - discount);
-      const alreadyPaid = parseFloat($('#amountReceivedHidden').val()) || 0;
-
-      $('#netAmountText').text(netAmount.toLocaleString(undefined, {minimumFractionDigits: 2}));
-      $('#netAmountInput').val(netAmount.toFixed(2));
-      
-      const balance = netAmount - alreadyPaid;
-      $('#balanceAmountText').text(balance.toLocaleString(undefined, {minimumFractionDigits: 2}));
-  }
+        $('#netAmountText').text(netAmount.toLocaleString(undefined, {minimumFractionDigits: 2}));
+        $('#netAmountInput').val(netAmount.toFixed(2));
+        
+        const balance = netAmount - alreadyPaid;
+        $('#balanceAmountText').text(balance.toLocaleString(undefined, {minimumFractionDigits: 2}));
+    }
 </script>
 @endsection

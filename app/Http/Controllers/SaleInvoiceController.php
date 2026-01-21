@@ -24,33 +24,21 @@ class SaleInvoiceController extends Controller
 
     public function create()
     {
-        // 1. Fetch Products and calculate real-time stock for each
-        $products = Product::orderBy('name', 'asc')->get()->map(function ($product) {
-            // Total Purchased (Stock In)
-            $purchased = DB::table('purchase_invoice_items')
-                ->where('item_id', $product->id)
-                ->sum('quantity');
+        $products = Product::orderBy('name', 'asc')
+            ->withSum('purchaseInvoices as total_purchased', 'quantity')
+            ->withSum('saleInvoices as total_sold', 'quantity')
+            ->withCount('saleInvoiceParts as total_customized')
+            ->get()
+            ->map(function ($product) {
+                $product->real_time_stock = ($product->total_purchased ?? 0) 
+                                        - ($product->total_sold ?? 0) 
+                                        - ($product->total_customized ?? 0);
+                return $product;
+            });
 
-            // Total Sold via Standard Items (Stock Out)
-            $sold = DB::table('sale_invoice_items')
-                ->where('product_id', $product->id)
-                ->sum('quantity');
-
-            // Total Sold via Customizations (Stock Out - 1 unit each)
-            $customized = DB::table('sale_item_customization')
-                ->where('item_id', $product->id)
-                ->count();
-
-            // Attach calculated stock to the object
-            $product->real_time_stock = ($purchased ?? 0) - ($sold ?? 0) - ($customized ?? 0);
-            
-            return $product;
-        });
-
-        // 2. Return the view with calculated stock data
         return view('sales.create', [
             'products' => $products,
-            'customers' => ChartOfAccounts::where('account_type', 'customer')->get(), 
+            'customers' => ChartOfAccounts::where('account_type', 'customer')->get(),
             'paymentAccounts' => ChartOfAccounts::whereIn('account_type', ['cash', 'bank'])->get(),
         ]);
     }
@@ -199,14 +187,24 @@ class SaleInvoiceController extends Controller
     {
         $invoice = SaleInvoice::with(['items.customizations', 'account'])->findOrFail($id);
         
-        // Fetch total already received for this invoice via Vouchers
+        // Calculate real-time stock exactly like the create method
+        $products = Product::orderBy('name', 'asc')
+            ->withSum('purchaseInvoices as total_purchased', 'quantity')
+            ->withSum('saleInvoices as total_sold', 'quantity')
+            ->withCount('saleInvoiceParts as total_customized')
+            ->get()
+            ->map(function ($product) {
+                $product->real_time_stock = ($product->total_purchased ?? 0) - ($product->total_sold ?? 0) - ($product->total_customized ?? 0);
+                return $product;
+            });
+
         $amountReceived = Voucher::where('ac_cr_sid', $invoice->account_id)
             ->where('remarks', 'LIKE', "%Invoice #{$invoice->invoice_no}%")
             ->sum('amount');
 
         return view('sales.edit', [
             'invoice' => $invoice,
-            'products' => Product::get(),
+            'products' => $products, // Now contains real_time_stock
             'customers' => ChartOfAccounts::where('account_type', 'customer')->get(),
             'paymentAccounts' => ChartOfAccounts::whereIn('account_type', ['cash', 'bank'])->get(),
             'amountReceived' => $amountReceived,
@@ -224,7 +222,7 @@ class SaleInvoiceController extends Controller
             'items'              => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.sale_price' => 'required|numeric|min:0',
-            'items.*.quantity'   => 'required|numeric|min:1',
+            'items.*.quantity'   => 'required|numeric|min:0.01',
             'items.*.customizations'   => 'nullable|array',
             'items.*.customizations.*' => 'exists:products,id',
             'payment_account_id' => 'nullable|exists:chart_of_accounts,id',
@@ -246,6 +244,7 @@ class SaleInvoiceController extends Controller
             ]);
 
             // 2. Clear Existing Items & Customizations
+            // We delete them and re-add to handle row removals/changes easily
             SaleItemCustomization::where('sale_invoice_id', $invoice->id)->delete();
             $invoice->items()->delete();
 
@@ -253,9 +252,9 @@ class SaleInvoiceController extends Controller
             $totalBill = 0;
             $totalCost = 0;
 
-            // Fetch Accounts for COGS Logic
             $inventoryAccount = ChartOfAccounts::where('name', 'Stock in Hand')->first();
             $cogsAccount = ChartOfAccounts::where('account_type', 'cogs')->first();
+            $salesAccount = ChartOfAccounts::where('account_type', 'revenue')->first();
 
             foreach ($validated['items'] as $item) {
                 $invoiceItem = SaleInvoiceItem::create([
@@ -267,50 +266,53 @@ class SaleInvoiceController extends Controller
 
                 $totalBill += ($item['sale_price'] * $item['quantity']);
 
-                // COGS Logic (Landed Cost per unit)
-                $latestPurchase = PurchaseInvoiceItem::where('item_id', $item['product_id'])->latest()->first();
+                // --- COGS Calculation ---
+                $latestPurchase = PurchaseInvoiceItem::where('item_id', $item['product_id'])
+                    ->with('invoice')
+                    ->latest()
+                    ->first();
+
+                $itemTotalCost = 0;
                 if ($latestPurchase) {
-                    $unitPrice = $latestPurchase->price; // Matches your store logic
+                    $unitPrice = $latestPurchase->price;
                     $totalQtyInPurchase = PurchaseInvoiceItem::where('purchase_invoice_id', $latestPurchase->purchase_invoice_id)->sum('quantity');
                     $biltyCharge = $latestPurchase->invoice->bilty_charges ?? 0;
                     $landedCostPerUnit = $unitPrice + ($biltyCharge / ($totalQtyInPurchase ?: 1));
-                    
                     $itemTotalCost = $landedCostPerUnit;
+                }
 
-                    // Handle Customizations
-                    if (!empty($item['customizations'])) {
-                        foreach ($item['customizations'] as $customId) {
-                            SaleItemCustomization::create([
-                                'sale_invoice_id'       => $invoice->id,
-                                'sale_invoice_items_id' => $invoiceItem->id,
-                                'item_id'               => $customId,
-                            ]);
-                            
-                            // Add customization material cost to COGS
-                            $customPurchase = PurchaseInvoiceItem::where('item_id', $customId)->latest()->first();
-                            if ($customPurchase) {
-                                $itemTotalCost += $customPurchase->price;
-                            }
+                // Handle Customizations
+                if (!empty($item['customizations'])) {
+                    foreach ($item['customizations'] as $customId) {
+                        SaleItemCustomization::create([
+                            'sale_invoice_id'       => $invoice->id,
+                            'sale_invoice_items_id' => $invoiceItem->id,
+                            'item_id'               => $customId,
+                        ]);
+                        
+                        // Add customization material cost to item COGS
+                        $customPurchase = PurchaseInvoiceItem::where('item_id', $customId)->latest()->first();
+                        if ($customPurchase) {
+                            $itemTotalCost += $customPurchase->price;
                         }
                     }
-                    $totalCost += ($itemTotalCost * $item['quantity']);
                 }
+                $totalCost += ($itemTotalCost * $item['quantity']);
             }
 
             $netTotal = $totalBill - ($validated['discount'] ?? 0);
+            $invoice->update(['net_amount' => $netTotal]);
 
             // 4. Update Financial Vouchers
-            // First, delete old Sales and COGS vouchers to prevent duplicates
-            // Note: We use 'reference' if available, otherwise 'remarks'
+            // Delete ONLY the Journal and Receipt vouchers linked specifically to this invoice ID
             Voucher::where('reference', $invoice->id)->delete();
 
-            // Re-create Sales Revenue Entry
-            $salesAccount = ChartOfAccounts::where('account_type', 'revenue')->first();
+            // Re-create Sales Revenue Entry (Journal)
             Voucher::create([
                 'voucher_type' => 'journal',
                 'date'         => $validated['date'],
-                'ac_dr_sid'    => $validated['account_id'], // Debit Customer
-                'ac_cr_sid'    => $salesAccount->id,        // Credit Sales
+                'ac_dr_sid'    => $validated['account_id'], 
+                'ac_cr_sid'    => $salesAccount->id ?? null,
                 'amount'       => $netTotal,
                 'remarks'      => "Updated: Sales Invoice #{$invoiceNo}",
                 'reference'    => $invoice->id,
@@ -329,7 +331,7 @@ class SaleInvoiceController extends Controller
                 ]);
             }
 
-            // 5. Handle Payment Update (Receipt)
+            // 5. Handle NEW Payment Receipt
             if ($request->filled('payment_account_id') && $request->amount_received > 0) {
                 Voucher::create([
                     'voucher_type' => 'receipt',
@@ -343,17 +345,18 @@ class SaleInvoiceController extends Controller
             }
 
             DB::commit();
-            // Clear Cache for the updated products to refresh profit reports
+
+            // Refresh cache for all items in the invoice
             foreach($validated['items'] as $item) {
                 \Cache::forget("landed_cost_prod_{$item['product_id']}");
             }
 
-            return redirect()->route('sale_invoices.index')->with('success', 'Invoice and Vouchers updated successfully.');
+            return redirect()->route('sale_invoices.index')->with('success', 'Invoice updated successfully.');
 
-        } catch (\Throwable $e) {
+        } catch (\Exception $e) {
             DB::rollBack();
-            Log::error($e->getMessage());
-            return back()->with('error', 'Update Failed: ' . $e->getMessage());
+            Log::error("Invoice Update Error: " . $e->getMessage());
+            return back()->with('error', 'Update Failed: ' . $e->getMessage())->withInput();
         }
     }
 
