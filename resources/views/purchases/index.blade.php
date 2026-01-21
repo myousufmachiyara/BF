@@ -37,13 +37,12 @@
                     <table class="table table-bordered table-striped" id="purchaseInvoiceTable">
                         <thead>
                             <tr>
-                                <th>#</th>
+                                <th width="4%">#</th>
                                 <th>Invoice Date</th>
+                                <th>Invoice #</th>
                                 <th>Vendor</th>
-                                <th>Bill No</th>
-                                <th>Ref No</th>
                                 <th>Attachments</th>
-                                <th>Actions</th>
+                                <th width="8%">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -51,9 +50,8 @@
                             <tr>
                                 <td>{{ $index + 1 }}</td>
                                 <td>{{ \Carbon\Carbon::parse($invoice->invoice_date)->format('d-M-Y') }}</td>
+                                <td class="text-primary">PUR-{{ $invoice->invoice_no ?? 'N/A' }}</td>
                                 <td>{{ $invoice->vendor->name ?? 'N/A' }}</td>
-                                <td>{{ $invoice->bill_no }}</td>
-                                <td>{{ $invoice->ref_no }}</td>
                                 <td>
                                     @if($invoice->attachments && count($invoice->attachments))
                                         @foreach ($invoice->attachments as $file)
