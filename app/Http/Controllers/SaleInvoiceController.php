@@ -24,12 +24,33 @@ class SaleInvoiceController extends Controller
 
     public function create()
     {
-        return view('sales.create', [
-            'products' => Product::get(),
-            // Accounts for the "Customer Name" dropdown
-            'customers' => ChartOfAccounts::where('account_type', 'customer')->get(), 
+        // 1. Fetch Products and calculate real-time stock for each
+        $products = Product::orderBy('name', 'asc')->get()->map(function ($product) {
+            // Total Purchased (Stock In)
+            $purchased = DB::table('purchase_invoice_items')
+                ->where('item_id', $product->id)
+                ->sum('quantity');
+
+            // Total Sold via Standard Items (Stock Out)
+            $sold = DB::table('sale_invoice_items')
+                ->where('product_id', $product->id)
+                ->sum('quantity');
+
+            // Total Sold via Customizations (Stock Out - 1 unit each)
+            $customized = DB::table('sale_item_customization')
+                ->where('item_id', $product->id)
+                ->count();
+
+            // Attach calculated stock to the object
+            $product->real_time_stock = ($purchased ?? 0) - ($sold ?? 0) - ($customized ?? 0);
             
-            // Accounts for the "Deposit To" dropdown (Cash/Bank)
+            return $product;
+        });
+
+        // 2. Return the view with calculated stock data
+        return view('sales.create', [
+            'products' => $products,
+            'customers' => ChartOfAccounts::where('account_type', 'customer')->get(), 
             'paymentAccounts' => ChartOfAccounts::whereIn('account_type', ['cash', 'bank'])->get(),
         ]);
     }
