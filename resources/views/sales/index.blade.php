@@ -23,6 +23,7 @@
             <thead class="thead-dark">
               <tr>
                 <th>#</th>
+                <th>invoice #</th>
                 <th>Date</th>
                 <th>Account</th>
                 <th>Type</th>
@@ -34,6 +35,7 @@
             @foreach ($invoices as $invoice)
             <tr>
                 <td>{{ $loop->iteration }}</td>
+                <td>{{ $invoice->invoice_no }}</td>
                 <td>{{ $invoice->date }}</td>
                 <td>{{ $invoice->account->name ?? 'POS Customer' }}</td>
                 <td>
