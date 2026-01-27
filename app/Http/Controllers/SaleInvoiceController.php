@@ -360,6 +360,35 @@ class SaleInvoiceController extends Controller
         }
     }
 
+    public function destroy($id)
+    {
+        DB::beginTransaction();
+        try {
+            $invoice = SaleInvoice::findOrFail($id);
+
+            // 1. Delete associated customizations first (Foreign Key constraints)
+            SaleItemCustomization::where('sale_invoice_id', $invoice->id)->delete();
+
+            // 2. Delete invoice items
+            $invoice->items()->delete();
+
+            // 3. Remove all financial entries linked to this invoice
+            // This clears the Sales Revenue, COGS, and any Payment Receipts
+            Voucher::where('reference', $invoice->id)->delete();
+
+            // 4. Finally, delete the invoice itself
+            $invoice->delete();
+
+            DB::commit();
+            return redirect()->route('sale_invoices.index')->with('success', 'Invoice and associated financial records deleted successfully.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error("[SaleInvoice] Delete failed: " . $e->getMessage());
+            return back()->with('error', 'Failed to delete invoice: ' . $e->getMessage());
+        }
+    }
+
     public function show($id)
     {
         $invoice = SaleInvoice::with('items.product', 'items.variation', 'account')
