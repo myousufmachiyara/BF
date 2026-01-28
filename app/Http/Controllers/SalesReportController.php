@@ -200,37 +200,29 @@ class SalesReportController extends Controller
 
     public function printProfitReport($id)
     {
-        // 1. Fetch Invoice with correct nested relationships
-        // 'items.product' uses product_id (SaleInvoiceItem)
-        // 'items.customizations.item' uses item_id (SaleItemCustomization)
+        // 1. Fetch Invoice with correct relationships
         $invoice = SaleInvoice::with([
             'account', 
             'items.product', 
             'items.customizations.item'
         ])->findOrFail($id);
 
-        // 2. The Reusable Cost Logic
+        // 2. The Landed Cost Logic
         $getLandedCost = function ($productId) {
             if (!$productId) return 0;
 
-            // Note: If you still see 0.00 after pasting, run 'php artisan cache:clear' once
             return \Cache::remember("landed_cost_prod_{$productId}", 86400, function () use ($productId) {
                 
-                // 1. Purchase Rate Logic
-                // We check both item_id and product_id to cover both naming conventions in your DB
-                $pStats = PurchaseInvoiceItem::where(function($q) use ($productId) {
-                        $q->where('item_id', $productId)->orWhere('product_id', $productId);
-                    })
+                // 1. Purchase Rate - Querying strictly by 'item_id' as per your Model
+                $pStats = PurchaseInvoiceItem::where('item_id', $productId)
                     ->whereHas('invoice', fn ($q) => $q->whereNull('deleted_at'))
                     ->selectRaw('SUM(quantity * price) as v, SUM(quantity) as q')
                     ->first();
 
                 $purchaseRate = ($pStats && $pStats->q > 0) ? ($pStats->v / $pStats->q) : 0;
 
-                // 2. Bilty Logic
-                $biltyQuery = PurchaseBiltyDetail::where(function($q) use ($productId) {
-                        $q->where('item_id', $productId)->orWhere('product_id', $productId);
-                    })
+                // 2. Bilty Logic - Querying strictly by 'item_id' as per your Model
+                $biltyQuery = PurchaseBiltyDetail::where('item_id', $productId)
                     ->join('purchase_bilty', fn($j) => $j->on('purchase_bilty.id', '=', 'purchase_bilty_details.bilty_id')->whereNull('purchase_bilty.deleted_at'));
 
                 $biltyTotal = $biltyQuery->sum(\DB::raw('(purchase_bilty.bilty_amount / (SELECT SUM(quantity) FROM purchase_bilty_details d WHERE d.bilty_id = purchase_bilty.id)) * purchase_bilty_details.quantity'));
@@ -288,18 +280,17 @@ class SalesReportController extends Controller
         $totalLandedCost = 0;
 
         foreach ($invoice->items as $idx => $item) {
-            // Get Main Item Cost using product_id
+            // Main Item uses product_id from SaleInvoiceItem
             $mainUnitCost = $getLandedCost($item->product_id);
             $totalUnitCost = $mainUnitCost;
             
             $customLines = [];
             if ($item->customizations) {
                 foreach ($item->customizations as $custom) {
-                    // Get Custom Part Cost using item_id
+                    // Customization uses item_id from SaleItemCustomization
                     $cCost = $getLandedCost($custom->item_id);
                     $totalUnitCost += $cCost;
                     
-                    // Get part name from the 'item' relationship in SaleItemCustomization
                     $partName = $custom->item->name ?? 'Custom Part';
                     $customLines[] = '<span style="color:#555;">+ ' . $partName . ' (@' . number_format($cCost, 2) . ')</span>';
                 }
@@ -327,7 +318,6 @@ class SalesReportController extends Controller
             </tr>';
         }
 
-        // --- Footer ---
         $netRev = $totalRevenue - ($invoice->discount ?? 0);
         $netProfit = $netRev - $totalLandedCost;
         $margin = $netRev > 0 ? ($netProfit / $netRev) * 100 : 0;
