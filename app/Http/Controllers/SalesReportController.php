@@ -200,39 +200,41 @@ class SalesReportController extends Controller
 
     public function printProfitReport($id)
     {
-        // 1. Fetch Invoice - Note the addition of 'items.customizations.product' to get part names
-        $invoice = SaleInvoice::with(['account', 'items.product', 'items.customizations.item'])->findOrFail($id);
+        // 1. Fetch Invoice with correct nested relationships
+        // 'items.product' uses product_id (SaleInvoiceItem)
+        // 'items.customizations.item' uses item_id (SaleItemCustomization)
+        $invoice = SaleInvoice::with([
+            'account', 
+            'items.product', 
+            'items.customizations.item'
+        ])->findOrFail($id);
 
         // 2. The Reusable Cost Logic
         $getLandedCost = function ($productId) {
             if (!$productId) return 0;
 
+            // Note: If you still see 0.00 after pasting, run 'php artisan cache:clear' once
             return \Cache::remember("landed_cost_prod_{$productId}", 86400, function () use ($productId) {
-                // 1. Purchase Rate
-                // Ensure 'item_id' matches your actual column name in purchase_invoice_items
-                $pStats = PurchaseInvoiceItem::where('item_id', $productId) 
+                
+                // 1. Purchase Rate Logic
+                // We check both item_id and product_id to cover both naming conventions in your DB
+                $pStats = PurchaseInvoiceItem::where(function($q) use ($productId) {
+                        $q->where('item_id', $productId)->orWhere('product_id', $productId);
+                    })
                     ->whereHas('invoice', fn ($q) => $q->whereNull('deleted_at'))
                     ->selectRaw('SUM(quantity * price) as v, SUM(quantity) as q')
                     ->first();
 
-                // If the above returns 0, try 'product_id' if that's your schema
-                if (!$pStats || $pStats->q <= 0) {
-                    $pStats = PurchaseInvoiceItem::where('product_id', $productId)
-                        ->whereHas('invoice', fn ($q) => $q->whereNull('deleted_at'))
-                        ->selectRaw('SUM(quantity * price) as v, SUM(quantity) as q')
-                        ->first();
-                }
-
                 $purchaseRate = ($pStats && $pStats->q > 0) ? ($pStats->v / $pStats->q) : 0;
 
-                // 2. Bilty Logic (Ensure item_id matches here too)
-                $biltyTotal = PurchaseBiltyDetail::where('item_id', $productId)
-                    ->join('purchase_bilty', fn($j) => $j->on('purchase_bilty.id', '=', 'purchase_bilty_details.bilty_id')->whereNull('purchase_bilty.deleted_at'))
-                    ->sum(\DB::raw('(purchase_bilty.bilty_amount / (SELECT SUM(quantity) FROM purchase_bilty_details d WHERE d.bilty_id = purchase_bilty.id)) * purchase_bilty_details.quantity'));
+                // 2. Bilty Logic
+                $biltyQuery = PurchaseBiltyDetail::where(function($q) use ($productId) {
+                        $q->where('item_id', $productId)->orWhere('product_id', $productId);
+                    })
+                    ->join('purchase_bilty', fn($j) => $j->on('purchase_bilty.id', '=', 'purchase_bilty_details.bilty_id')->whereNull('purchase_bilty.deleted_at'));
 
-                $biltyQty = PurchaseBiltyDetail::where('item_id', $productId)
-                    ->join('purchase_bilty', fn($j) => $j->on('purchase_bilty.id', '=', 'purchase_bilty_details.bilty_id')->whereNull('purchase_bilty.deleted_at'))
-                    ->sum('purchase_bilty_details.quantity');
+                $biltyTotal = $biltyQuery->sum(\DB::raw('(purchase_bilty.bilty_amount / (SELECT SUM(quantity) FROM purchase_bilty_details d WHERE d.bilty_id = purchase_bilty.id)) * purchase_bilty_details.quantity'));
+                $biltyQty = $biltyQuery->sum('purchase_bilty_details.quantity');
 
                 $biltyRate = ($biltyQty > 0) ? ($biltyTotal / $biltyQty) : 0;
 
@@ -240,7 +242,7 @@ class SalesReportController extends Controller
             });
         };
 
-        // 3. Setup TCPDF (Standard setup)
+        // 3. Setup TCPDF
         $pdf = new \TCPDF();
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
@@ -248,13 +250,14 @@ class SalesReportController extends Controller
         $pdf->SetTitle('Profit Analysis - ' . $invoice->invoice_no);
         $pdf->AddPage();
 
-        // --- Header & Info (Same as your previous code) ---
+        // --- Header ---
         $logoPath = public_path('assets/img/bf_logo.jpg');
         if (file_exists($logoPath)) { $pdf->Image($logoPath, 12, 8, 35); }
         $pdf->SetFont('helvetica', 'B', 14);
         $pdf->SetXY(120, 12);
         $pdf->Cell(80, 8, 'Profit Analysis Report', 0, 1, 'R');
 
+        // --- Customer Info ---
         $pdf->Ln(10);
         $pdf->SetFont('helvetica', '', 9);
         $infoHtml = '<table border="1" cellpadding="3">
@@ -285,17 +288,18 @@ class SalesReportController extends Controller
         $totalLandedCost = 0;
 
         foreach ($invoice->items as $idx => $item) {
-            // Calculate Main Item Unit Cost
+            // Get Main Item Cost using product_id
             $mainUnitCost = $getLandedCost($item->product_id);
             $totalUnitCost = $mainUnitCost;
             
             $customLines = [];
             if ($item->customizations) {
                 foreach ($item->customizations as $custom) {
+                    // Get Custom Part Cost using item_id
                     $cCost = $getLandedCost($custom->item_id);
-                    $totalUnitCost += $cCost; // Add to piece cost
+                    $totalUnitCost += $cCost;
                     
-                    // Get part name and cost/pc
+                    // Get part name from the 'item' relationship in SaleItemCustomization
                     $partName = $custom->item->name ?? 'Custom Part';
                     $customLines[] = '<span style="color:#555;">+ ' . $partName . ' (@' . number_format($cCost, 2) . ')</span>';
                 }
@@ -323,7 +327,7 @@ class SalesReportController extends Controller
             </tr>';
         }
 
-        // --- Footer Totals (Same as your previous code) ---
+        // --- Footer ---
         $netRev = $totalRevenue - ($invoice->discount ?? 0);
         $netProfit = $netRev - $totalLandedCost;
         $margin = $netRev > 0 ? ($netProfit / $netRev) * 100 : 0;
