@@ -281,7 +281,7 @@ class SalesReportController extends Controller
                     
                     // Get part name and cost/pc
                     $partName = $custom->item->name ?? 'Custom Part';
-                    $customLines[] = '<small style="color:#555;">+ ' . $partName . ' (@' . number_format($cCost, 2) . ')</small>';
+                    $customLines[] = '<span style="color:#555;">+ ' . $partName . ' (@' . number_format($cCost, 2) . ')</span>';
                 }
             }
 
