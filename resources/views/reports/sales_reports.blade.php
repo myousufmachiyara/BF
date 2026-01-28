@@ -254,7 +254,7 @@
                                 <a href="{{ route('reports.print-profit', ['id' => $row->id]) }}" 
                                 target="_blank" 
                                 class="btn btn-sm btn-danger">
-                                    <i class="fa fa-file-pdf"></i> Print
+                                    <i class="fa fa-file-pdf"></i>
                                 </a>
                             </td>
                         </tr>
