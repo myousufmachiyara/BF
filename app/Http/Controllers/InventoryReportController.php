@@ -26,23 +26,27 @@ class InventoryReportController extends Controller
         if ($tab == 'IL' && $itemId) {
             
             // 1. Calculate Opening Balance (Purchases - Sales - Customizations) before $from date
+            // Calculate Opening Balance
             $opPurchase = DB::table('purchase_invoice_items')
-                ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
-                ->where('purchase_invoice_items.item_id', $itemId)
-                ->where('purchase_invoices.invoice_date', '<', $from)
-                ->sum('purchase_invoice_items.quantity');
+            ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
+            ->where('purchase_invoice_items.item_id', $itemId)
+            ->where('purchase_invoices.invoice_date', '<', $from)
+            ->whereNull('purchase_invoices.deleted_at') // Add this
+            ->sum('purchase_invoice_items.quantity');
 
             $opSale = DB::table('sale_invoice_items')
-                ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
-                ->where('sale_invoice_items.product_id', $itemId)
-                ->where('sale_invoices.date', '<', $from)
-                ->sum('sale_invoice_items.quantity');
+            ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
+            ->where('sale_invoice_items.product_id', $itemId)
+            ->where('sale_invoices.date', '<', $from)
+            ->whereNull('sale_invoices.deleted_at') // Add this
+            ->sum('sale_invoice_items.quantity');
 
             $opCustom = DB::table('sale_item_customization')
-                ->join('sale_invoices', 'sale_item_customization.sale_invoice_id', '=', 'sale_invoices.id')
-                ->where('sale_item_customization.item_id', $itemId)
-                ->where('sale_invoices.date', '<', $from)
-                ->count(); // Each customization row counts as 1
+            ->join('sale_invoices', 'sale_item_customization.sale_invoice_id', '=', 'sale_invoices.id')
+            ->where('sale_item_customization.item_id', $itemId)
+            ->where('sale_invoices.date', '<', $from)
+            ->whereNull('sale_invoices.deleted_at') // Add this
+            ->count();
 
             $openingQty = $opPurchase - $opSale - $opCustom;
 
