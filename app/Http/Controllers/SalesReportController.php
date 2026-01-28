@@ -36,6 +36,7 @@ class SalesReportController extends Controller
                     });
 
                     return (object)[
+                        'id'       => $sale->id, // Add this here too!
                         'date'     => $sale->date,
                         'invoice'  => $sale->invoice_no ?? $sale->id,
                         'customer' => $sale->account->name ?? '',
@@ -199,10 +200,10 @@ class SalesReportController extends Controller
 
     public function printProfitReport($id)
     {
-        // 1. Fetch Invoice with all necessary relations for Profit Calculation
+        // 1. Fetch Invoice with Relations (Same as your report logic)
         $invoice = SaleInvoice::with(['account', 'items.product', 'items.customizations'])->findOrFail($id);
 
-        // 2. Define Landed Cost Helper (Same logic as your report)
+        // 2. The Reusable Cost Logic (Same as your report logic)
         $getLandedCost = function ($productId) {
             return \Cache::remember("landed_cost_prod_{$productId}", 86400, function () use ($productId) {
                 $pStats = PurchaseInvoiceItem::where('item_id', $productId)
@@ -219,90 +220,92 @@ class SalesReportController extends Controller
                     ->join('purchase_bilty', fn($j) => $j->on('purchase_bilty.id', '=', 'purchase_bilty_details.bilty_id')->whereNull('purchase_bilty.deleted_at'))
                     ->sum('purchase_bilty_details.quantity');
 
-                $biltyRate = ($biltyQty > 0) ? ($biltyTotal / $biltyQty) : 0;
-                return $purchaseRate + $biltyRate;
+                return $purchaseRate + (($biltyQty > 0) ? ($biltyTotal / $biltyQty) : 0);
             });
         };
 
-        // 3. Initialize TCPDF
+        // 3. Setup TCPDF
         $pdf = new \TCPDF();
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
         $pdf->SetMargins(10, 10, 10);
-        $pdf->SetTitle('PROFIT-ANALYSIS-' . $invoice->invoice_no);
+        $pdf->SetTitle('Profit Analysis - ' . $invoice->invoice_no);
         $pdf->AddPage();
 
-        // --- Header Section ---
+        // --- Header ---
         $logoPath = public_path('assets/img/bf_logo.jpg');
         if (file_exists($logoPath)) { $pdf->Image($logoPath, 12, 8, 35); }
-        
         $pdf->SetFont('helvetica', 'B', 14);
         $pdf->SetXY(120, 12);
         $pdf->Cell(80, 8, 'Profit Analysis Report', 0, 1, 'R');
-        $pdf->Ln(10);
 
-        // --- Info Table ---
+        // --- Customer Info ---
+        $pdf->Ln(10);
         $pdf->SetFont('helvetica', '', 9);
         $infoHtml = '
-        <table cellpadding="3" border="1">
+        <table border="1" cellpadding="3">
             <tr>
-                <td width="15%" bgcolor="#f5f5f5"><b>Customer:</b></td><td width="45%">' . ($invoice->account->name ?? '-') . '</td>
-                <td width="15%" bgcolor="#f5f5f5"><b>Invoice #:</b></td><td width="25%">' . $invoice->invoice_no . '</td>
+                <td width="15%" bgcolor="#f5f5f5"><b>Customer:</b></td><td width="50%">' . ($invoice->account->name ?? '-') . '</td>
+                <td width="15%" bgcolor="#f5f5f5"><b>Date:</b></td><td width="20%">' . date('d-m-Y', strtotime($invoice->date)) . '</td>
             </tr>
             <tr>
-                <td bgcolor="#f5f5f5"><b>Date:</b></td><td>' . date('d-M-Y', strtotime($invoice->date)) . '</td>
-                <td bgcolor="#f5f5f5"><b>Status:</b></td><td>Analysis</td>
+                <td bgcolor="#f5f5f5"><b>Invoice #:</b></td><td>' . $invoice->invoice_no . '</td>
+                <td bgcolor="#f5f5f5"><b>Currency:</b></td><td>PKR</td>
             </tr>
         </table>';
         $pdf->writeHTML($infoHtml);
-        $pdf->Ln(5);
 
-        // --- Profit Calculation Table ---
+        // --- Items Table ---
         $html = '
-        <table border="1" cellpadding="5" style="font-size:9px; text-align:center;">
-            <thead>
-                <tr style="font-weight:bold; background-color:#e3e3e3;">
-                    <th width="5%">#</th>
-                    <th width="35%">Item Description</th>
-                    <th width="10%">Qty</th>
-                    <th width="15%">Sale Price</th>
-                    <th width="15%">Landed Cost</th>
-                    <th width="20%">Line Profit</th>
-                </tr>
-            </thead>
-            <tbody>';
+        <table border="1" cellpadding="4" style="font-size:9px; text-align:center;">
+            <tr style="background-color:#f5f5f5; font-weight:bold;">
+                <th width="5%">#</th>
+                <th width="35%">Product & Customizations</th>
+                <th width="10%">Qty</th>
+                <th width="15%">Sale Val</th>
+                <th width="15%">Landed Cost</th>
+                <th width="20%">Line Profit</th>
+            </tr>';
 
         $totalRevenue = 0;
         $totalLandedCost = 0;
 
-        foreach ($invoice->items as $index => $item) {
+        foreach ($invoice->items as $idx => $item) {
+            // Calculate Cost exactly like your map function
             $unitCost = $getLandedCost($item->product_id);
+            $customNames = [];
             if ($item->customizations) {
                 foreach ($item->customizations as $custom) {
                     $unitCost += $getLandedCost($custom->item_id);
+                    $customNames[] = $custom->product->name ?? 'Custom';
                 }
             }
 
-            $lineRevenue = ($item->sale_price ?? 0) * $item->quantity;
+            $lineRev = $item->sale_price * $item->quantity;
             $lineCost = $unitCost * $item->quantity;
-            $lineProfit = $lineRevenue - $lineCost;
+            $lineProfit = $lineRev - $lineCost;
 
-            $totalRevenue += $lineRevenue;
+            $totalRevenue += $lineRev;
             $totalLandedCost += $lineCost;
 
+            $productDisplay = '<b>' . ($item->product->name ?? '-') . '</b>';
+            if (!empty($customNames)) {
+                $productDisplay .= '<br><small style="color:#555;">Incl: ' . implode(', ', $customNames) . '</small>';
+            }
+
             $html .= '<tr>
-                <td>' . ($index + 1) . '</td>
-                <td align="left">' . ($item->product->name ?? 'N/A') . '</td>
+                <td>' . ($idx + 1) . '</td>
+                <td align="left">' . $productDisplay . '</td>
                 <td>' . number_format($item->quantity, 2) . '</td>
-                <td>' . number_format($item->sale_price, 2) . '</td>
-                <td>' . number_format($unitCost, 2) . '</td>
+                <td>' . number_format($lineRev, 2) . '</td>
+                <td>' . number_format($lineCost, 2) . '</td>
                 <td style="font-weight:bold;">' . number_format($lineProfit, 2) . '</td>
             </tr>';
         }
 
-        $netRevenue = $totalRevenue - ($invoice->discount ?? 0);
-        $totalProfit = $netRevenue - $totalLandedCost;
-        $margin = $netRevenue > 0 ? ($totalProfit / $netRevenue) * 100 : 0;
+        $netRev = $totalRevenue - ($invoice->discount ?? 0);
+        $netProfit = $netRev - $totalLandedCost;
+        $margin = $netRev > 0 ? ($netProfit / $netRev) * 100 : 0;
 
         $html .= '
             <tr style="background-color:#f9f9f9;">
@@ -315,19 +318,17 @@ class SalesReportController extends Controller
                 <td colspan="5" align="right">Less: Discount</td>
                 <td>(' . number_format($invoice->discount ?? 0, 2) . ')</td>
             </tr>
-            <tr style="background-color:#e8f5e9; font-size:11px;">
+            <tr style="background-color:#e8f5e9;">
                 <td colspan="5" align="right"><b>NET PROFIT</b></td>
-                <td style="color:green;"><b>' . number_format($totalProfit, 2) . '</b></td>
+                <td style="color:green;"><b>' . number_format($netProfit, 2) . '</b></td>
             </tr>
             <tr style="background-color:#f5f5f5;">
-                <td colspan="5" align="right"><b>Profit Margin (%)</b></td>
+                <td colspan="5" align="right"><b>Margin %</b></td>
                 <td><b>' . number_format($margin, 2) . '%</b></td>
             </tr>
-        </tbody></table>';
+        </table>';
 
         $pdf->writeHTML($html);
-        
-        // Output
         return $pdf->Output('Profit_Analysis_' . $invoice->invoice_no . '.pdf', 'I');
     }
 }
