@@ -56,12 +56,18 @@
             </div>
 
             <div class="col-md-2">
+              <label>Purchase Price</label>
+              <input type="number" step="any" name="purchase_price" class="form-control" value="{{ old('purchase_price', '0.00') }}">
+              @error('purchase_price')<div class="text-danger">{{ $message }}</div>@enderror
+            </div>
+
+            <div class="col-md-2">
               <label>Selling Price</label>
               <input type="number" step="any" name="selling_price" class="form-control" value="{{ old('selling_price', '0.00') }}">
               @error('selling_price')<div class="text-danger">{{ $message }}</div>@enderror
             </div>
 
-            <div class="col-md-2">
+            <div class="col-md-2 mt-3">
               <label>Bilty Charges</label>
               <input type="number" step="any" name="bilty_charges" class="form-control" value="{{ old('bilty_charges', '0.00') }}">
               @error('bilty_charges')<div class="text-danger">{{ $message }}</div>@enderror

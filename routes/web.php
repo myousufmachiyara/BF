@@ -19,10 +19,10 @@ use App\Http\Controllers\{
     PurchaseReportController,
     SalesReportController,
     AccountsReportController,
-    SummaryReportController,
     SaleReturnController,
     PermissionController,
     PurchaseBiltyController,
+    PDCController,
 };
 
 Auth::routes();
@@ -70,7 +70,7 @@ Route::middleware(['auth'])->group(function () {
 
         // Vouchers
         'vouchers' => ['controller' => VoucherController::class, 'permission' => 'vouchers'],
-
+        'pdc' => ['controller' => PDCController::class, 'permission' => 'pdc'],
     ];
 
     foreach ($modules as $uri => $config) {
@@ -116,8 +116,22 @@ Route::middleware(['auth'])->group(function () {
         Route::get('purchase', [PurchaseReportController::class, 'purchaseReports'])->name('purchase');
         Route::get('sale', [SalesReportController::class, 'saleReports'])->name('sale');
         Route::get('accounts', [AccountsReportController::class, 'accounts'])->name('accounts');
+        Route::get('/print-profit/{id}', [SalesReportController::class, 'printProfitReport'])->name('print-profit');
     });
 });
 Auth::routes();
-
+// Add lifecycle routes for PDC after or before the loop
+Route::prefix('pdc')->group(function () {
+    Route::patch('/{id}/deposit', [PDCController::class, 'deposit'])
+        ->middleware("check.permission:pdc.edit")
+        ->name("pdc.deposit");
+        
+    Route::patch('/{id}/clear', [PDCController::class, 'clear'])
+        ->middleware("check.permission:pdc.edit")
+        ->name("pdc.clear");
+        
+    Route::patch('/{id}/bounce', [PDCController::class, 'bounce'])
+        ->middleware("check.permission:pdc.edit")
+        ->name("pdc.bounce");
+});
 Route::get('/home', [App\Http\Controllers\HomeController::class, 'index'])->name('home');

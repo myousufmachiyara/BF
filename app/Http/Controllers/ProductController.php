@@ -45,6 +45,7 @@ class ProductController extends Controller
             'description' => 'nullable|string',
             'measurement_unit' => 'required|exists:measurement_units,id',
             'selling_price' => 'nullable|numeric',
+            'purchase_price' => 'nullable|numeric',
             'bilty_charges' => 'nullable|numeric',
             'opening_stock' => 'required|numeric',
             'reorder_level' => 'nullable|numeric',
@@ -62,8 +63,8 @@ class ProductController extends Controller
         try {
             // ✅ Create Product
             $productData = $request->only([
-                'name', 'category_id','sku', 'description','measurement_unit','opening_stock', 'selling_price', 'bilty_charges',
-                'reorder_level', 'max_stock_level', 'minimum_order_qty', 'is_active'
+                'name', 'category_id','sku', 'description','measurement_unit','opening_stock', 'selling_price', 'purchase_price', 
+                'bilty_charges', 'reorder_level', 'max_stock_level', 'minimum_order_qty', 'is_active'
             ]);
 
             $product = Product::create($productData);
@@ -173,7 +174,7 @@ class ProductController extends Controller
             // ✅ Update product
             $product->update($request->only([
                 'name', 'category_id', 'sku', 'measurement_unit', 'opening_stock', 'description', 'bilty_charges', 
-                'selling_price', 'reorder_level', 'max_stock_level', 'minimum_order_qty', 'is_active'
+                'selling_price', 'purchase_price' , 'reorder_level', 'max_stock_level', 'minimum_order_qty', 'is_active'
             ]));
 
             // ✅ Upload new images

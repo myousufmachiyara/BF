@@ -21,6 +21,7 @@ return new class extends Migration
             // Inventory & Pricing
             $table->decimal('opening_stock', 10, 2)->default(0);
             $table->decimal('selling_price', 10, 2)->default(0);
+            $table->decimal('purchase_price', 10, 2)->default(0);
             $table->decimal('bilty_charges', 10, 2)->default(0);
 
             // Stock control

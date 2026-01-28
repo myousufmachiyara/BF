@@ -36,7 +36,7 @@ class DatabaseSeeder extends Seeder
         // 📌 Modules & Permissions
         $modules = [
             'user_roles','users','coa','shoa','products','product_categories',
-            'purchase_invoices','purchase_return','purchase_bilty','sale_invoices','sale_return','vouchers'
+            'purchase_invoices','purchase_return','purchase_bilty','sale_invoices','sale_return','vouchers','pdc'
         ];
         $actions = ['index', 'create', 'edit', 'delete', 'print'];
         foreach ($modules as $module) {

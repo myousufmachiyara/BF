@@ -131,6 +131,15 @@
             </li>
           @endif
 
+          {{-- Post-Dated Cheques (PDC) --}}
+          @if(auth()->user()->can('pdc.index'))
+          <li class="{{ request()->routeIs('pdc.*') ? 'active' : '' }}">
+              <a class="nav-link" href="{{ route('pdc.index') }}">
+                  <i class="fa fa-envelope-open-text" aria-hidden="true"></i>
+                  <span>PDC Management</span>
+              </a>
+          </li>
+          @endif
 
           {{-- Reports --}}
           @if(

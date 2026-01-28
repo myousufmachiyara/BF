@@ -16,6 +16,7 @@ class Product extends Model
         'description',
         'opening_stock',
         'selling_price',
+        'purchase_price',
         'bilty_charges',
         'reorder_level',
         'max_stock_level',

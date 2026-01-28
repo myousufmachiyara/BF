@@ -234,6 +234,7 @@
                         <th>Landed Cost</th>
                         <th>Profit</th>
                         <th>Margin %</th>
+                        <th>Action</th> {{-- Added --}}
                     </tr>
                 </thead>
                 <tbody>
@@ -248,6 +249,14 @@
                                 {{ number_format($row->profit, 2) }}
                             </td>
                             <td>{{ number_format($row->margin, 1) }}%</td>
+                            <td>
+                                {{-- Match the route name defined in your routes file --}}
+                                <a href="{{ route('reports.print-profit', ['id' => $row->id]) }}" 
+                                target="_blank" 
+                                class="btn btn-sm btn-danger">
+                                    <i class="fa fa-file-pdf"></i> Print
+                                </a>
+                            </td>
                         </tr>
                     @empty
                         <tr><td colspan="7" class="text-center">No data found.</td></tr>
@@ -266,6 +275,7 @@
                     </tr>
                 </tfoot>
                 @endif
+                
             </table>
         </div>
     </div>
