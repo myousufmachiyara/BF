@@ -205,22 +205,38 @@ class SalesReportController extends Controller
 
         // 2. The Reusable Cost Logic
         $getLandedCost = function ($productId) {
+            if (!$productId) return 0;
+
             return \Cache::remember("landed_cost_prod_{$productId}", 86400, function () use ($productId) {
-                $pStats = PurchaseInvoiceItem::where('item_id', $productId)
+                // 1. Purchase Rate
+                // Ensure 'item_id' matches your actual column name in purchase_invoice_items
+                $pStats = PurchaseInvoiceItem::where('item_id', $productId) 
                     ->whereHas('invoice', fn ($q) => $q->whereNull('deleted_at'))
                     ->selectRaw('SUM(quantity * price) as v, SUM(quantity) as q')
                     ->first();
+
+                // If the above returns 0, try 'product_id' if that's your schema
+                if (!$pStats || $pStats->q <= 0) {
+                    $pStats = PurchaseInvoiceItem::where('product_id', $productId)
+                        ->whereHas('invoice', fn ($q) => $q->whereNull('deleted_at'))
+                        ->selectRaw('SUM(quantity * price) as v, SUM(quantity) as q')
+                        ->first();
+                }
+
                 $purchaseRate = ($pStats && $pStats->q > 0) ? ($pStats->v / $pStats->q) : 0;
 
-                $biltyTotal = PurchaseBiltyDetail::where('purchase_bilty_details.item_id', $productId)
+                // 2. Bilty Logic (Ensure item_id matches here too)
+                $biltyTotal = PurchaseBiltyDetail::where('item_id', $productId)
                     ->join('purchase_bilty', fn($j) => $j->on('purchase_bilty.id', '=', 'purchase_bilty_details.bilty_id')->whereNull('purchase_bilty.deleted_at'))
                     ->sum(\DB::raw('(purchase_bilty.bilty_amount / (SELECT SUM(quantity) FROM purchase_bilty_details d WHERE d.bilty_id = purchase_bilty.id)) * purchase_bilty_details.quantity'));
 
-                $biltyQty = PurchaseBiltyDetail::where('purchase_bilty_details.item_id', $productId)
+                $biltyQty = PurchaseBiltyDetail::where('item_id', $productId)
                     ->join('purchase_bilty', fn($j) => $j->on('purchase_bilty.id', '=', 'purchase_bilty_details.bilty_id')->whereNull('purchase_bilty.deleted_at'))
                     ->sum('purchase_bilty_details.quantity');
 
-                return $purchaseRate + (($biltyQty > 0) ? ($biltyTotal / $biltyQty) : 0);
+                $biltyRate = ($biltyQty > 0) ? ($biltyTotal / $biltyQty) : 0;
+
+                return $purchaseRate + $biltyRate;
             });
         };
 
