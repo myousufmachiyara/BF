@@ -201,7 +201,7 @@ class SalesReportController extends Controller
     public function printProfitReport($id)
     {
         // 1. Fetch Invoice - Note the addition of 'items.customizations.product' to get part names
-        $invoice = SaleInvoice::with(['account', 'items.product', 'items.customizations.product'])->findOrFail($id);
+        $invoice = SaleInvoice::with(['account', 'items.product', 'items.customizations.item'])->findOrFail($id);
 
         // 2. The Reusable Cost Logic
         $getLandedCost = function ($productId) {
