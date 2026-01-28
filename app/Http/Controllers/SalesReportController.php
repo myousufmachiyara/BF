@@ -170,6 +170,7 @@ class SalesReportController extends Controller
 
                     $netRevenue = $invoiceRevenue - ($sale->discount ?? 0);
                     return (object)[
+                        'id'       => $sale->id, // <--- ADD THIS LINE TO FIX THE ERROR
                         'date'     => $sale->date,
                         'invoice'  => $sale->invoice_no,
                         'customer' => $sale->account->name ?? 'N/A',
