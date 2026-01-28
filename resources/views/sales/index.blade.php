@@ -71,8 +71,11 @@
   </div>
 </div>
 <script>
-  $(document).ready(function () {
-    $('.datatable').DataTable(); // if you are using DataTables
-  });
+   $(document).ready(function() {
+        $('.datatable').DataTable({
+            pageLength: 100,
+            order: [[0, 'asc']],
+        });
+    });
 </script>
 @endsection
