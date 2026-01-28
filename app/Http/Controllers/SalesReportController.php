@@ -280,7 +280,7 @@ class SalesReportController extends Controller
                     $totalUnitCost += $cCost; // Add to piece cost
                     
                     // Get part name and cost/pc
-                    $partName = $custom->product->name ?? 'Custom Part';
+                    $partName = $custom->item->name ?? 'Custom Part';
                     $customLines[] = '<small style="color:#555;">+ ' . $partName . ' (@' . number_format($cCost, 2) . ')</small>';
                 }
             }
