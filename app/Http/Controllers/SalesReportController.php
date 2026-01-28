@@ -200,10 +200,10 @@ class SalesReportController extends Controller
 
     public function printProfitReport($id)
     {
-        // 1. Fetch Invoice with Relations (Same as your report logic)
-        $invoice = SaleInvoice::with(['account', 'items.product', 'items.customizations'])->findOrFail($id);
+        // 1. Fetch Invoice - Note the addition of 'items.customizations.product' to get part names
+        $invoice = SaleInvoice::with(['account', 'items.product', 'items.customizations.product'])->findOrFail($id);
 
-        // 2. The Reusable Cost Logic (Same as your report logic)
+        // 2. The Reusable Cost Logic
         $getLandedCost = function ($productId) {
             return \Cache::remember("landed_cost_prod_{$productId}", 86400, function () use ($productId) {
                 $pStats = PurchaseInvoiceItem::where('item_id', $productId)
@@ -224,7 +224,7 @@ class SalesReportController extends Controller
             });
         };
 
-        // 3. Setup TCPDF
+        // 3. Setup TCPDF (Standard setup)
         $pdf = new \TCPDF();
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
@@ -232,18 +232,16 @@ class SalesReportController extends Controller
         $pdf->SetTitle('Profit Analysis - ' . $invoice->invoice_no);
         $pdf->AddPage();
 
-        // --- Header ---
+        // --- Header & Info (Same as your previous code) ---
         $logoPath = public_path('assets/img/bf_logo.jpg');
         if (file_exists($logoPath)) { $pdf->Image($logoPath, 12, 8, 35); }
         $pdf->SetFont('helvetica', 'B', 14);
         $pdf->SetXY(120, 12);
         $pdf->Cell(80, 8, 'Profit Analysis Report', 0, 1, 'R');
 
-        // --- Customer Info ---
         $pdf->Ln(10);
         $pdf->SetFont('helvetica', '', 9);
-        $infoHtml = '
-        <table border="1" cellpadding="3">
+        $infoHtml = '<table border="1" cellpadding="3">
             <tr>
                 <td width="15%" bgcolor="#f5f5f5"><b>Customer:</b></td><td width="50%">' . ($invoice->account->name ?? '-') . '</td>
                 <td width="15%" bgcolor="#f5f5f5"><b>Date:</b></td><td width="20%">' . date('d-m-Y', strtotime($invoice->date)) . '</td>
@@ -257,13 +255,13 @@ class SalesReportController extends Controller
 
         // --- Items Table ---
         $html = '
-        <table border="1" cellpadding="4" style="font-size:9px; text-align:center;">
+        <table border="1" cellpadding="4" style="font-size:8px; text-align:center;">
             <tr style="background-color:#f5f5f5; font-weight:bold;">
                 <th width="5%">#</th>
-                <th width="35%">Product & Customizations</th>
-                <th width="10%">Qty</th>
-                <th width="15%">Sale Val</th>
-                <th width="15%">Landed Cost</th>
+                <th width="35%">Product & Customization Details</th>
+                <th width="8%">Qty</th>
+                <th width="14%">Sale Rate/Tot</th>
+                <th width="18%">Landed Cost/Tot</th>
                 <th width="20%">Line Profit</th>
             </tr>';
 
@@ -271,38 +269,45 @@ class SalesReportController extends Controller
         $totalLandedCost = 0;
 
         foreach ($invoice->items as $idx => $item) {
-            // Calculate Cost exactly like your map function
-            $unitCost = $getLandedCost($item->product_id);
-            $customNames = [];
+            // Calculate Main Item Unit Cost
+            $mainUnitCost = $getLandedCost($item->product_id);
+            $totalUnitCost = $mainUnitCost;
+            
+            $customLines = [];
             if ($item->customizations) {
                 foreach ($item->customizations as $custom) {
-                    $unitCost += $getLandedCost($custom->item_id);
-                    $customNames[] = $custom->product->name ?? 'Custom';
+                    $cCost = $getLandedCost($custom->item_id);
+                    $totalUnitCost += $cCost; // Add to piece cost
+                    
+                    // Get part name and cost/pc
+                    $partName = $custom->product->name ?? 'Custom Part';
+                    $customLines[] = '<small style="color:#555;">+ ' . $partName . ' (@' . number_format($cCost, 2) . ')</small>';
                 }
             }
 
             $lineRev = $item->sale_price * $item->quantity;
-            $lineCost = $unitCost * $item->quantity;
+            $lineCost = $totalUnitCost * $item->quantity;
             $lineProfit = $lineRev - $lineCost;
 
             $totalRevenue += $lineRev;
             $totalLandedCost += $lineCost;
 
-            $productDisplay = '<b>' . ($item->product->name ?? '-') . '</b>';
-            if (!empty($customNames)) {
-                $productDisplay .= '<br><small style="color:#555;">Incl: ' . implode(', ', $customNames) . '</small>';
+            $productDisplay = '<b>' . ($item->product->name ?? '-') . '</b> (@' . number_format($mainUnitCost, 2) . ')';
+            if (!empty($customLines)) {
+                $productDisplay .= '<br>' . implode('<br>', $customLines);
             }
 
             $html .= '<tr>
                 <td>' . ($idx + 1) . '</td>
                 <td align="left">' . $productDisplay . '</td>
                 <td>' . number_format($item->quantity, 2) . '</td>
-                <td>' . number_format($lineRev, 2) . '</td>
-                <td>' . number_format($lineCost, 2) . '</td>
-                <td style="font-weight:bold;">' . number_format($lineProfit, 2) . '</td>
+                <td>' . number_format($item->sale_price, 2) . '<br><b>' . number_format($lineRev, 2) . '</b></td>
+                <td>' . number_format($totalUnitCost, 2) . '<br><b>' . number_format($lineCost, 2) . '</b></td>
+                <td style="font-weight:bold; vertical-align:middle; font-size:10px;">' . number_format($lineProfit, 2) . '</td>
             </tr>';
         }
 
+        // --- Footer Totals (Same as your previous code) ---
         $netRev = $totalRevenue - ($invoice->discount ?? 0);
         $netProfit = $netRev - $totalLandedCost;
         $margin = $netRev > 0 ? ($netProfit / $netRev) * 100 : 0;
