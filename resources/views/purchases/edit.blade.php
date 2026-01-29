@@ -172,19 +172,40 @@
 
   });
 
-  // 🔹 Item name change handler
+  // 🔹 Item name change handler with Duplicate Check
   function onItemNameChange(selectElement) {
-    const row = selectElement.closest('tr');
-    const selectedOption = selectElement.options[selectElement.selectedIndex];
+      const itemId = selectElement.value;
+      if (!itemId) return; // Ignore if "Select Item" is chosen
 
-    const unitId = selectedOption.getAttribute('data-unit-id');
+      // 1. Check for Duplicates
+      let isDuplicate = false;
+      $('.product-select').not(selectElement).each(function() {
+          if ($(this).val() == itemId) {
+              isDuplicate = true;
+              return false; // Break loop
+          }
+      });
 
-    const idMatch = selectElement.id.match(/\d+$/);
-    if (!idMatch) return;
-    const index = idMatch[0];
+      if (isDuplicate) {
+          alert("This item is already added to the list. Please increase the quantity of the existing row instead.");
+          
+          // Reset the selection
+          $(selectElement).val('').trigger('change.select2');
+          return;
+      }
 
-    const unitSelector = $(`#unit${index}`);
-    unitSelector.val(String(unitId)).trigger('change.select2');
+      // 2. Original logic to set the unit
+      const row = selectElement.closest('tr');
+      const selectedOption = selectElement.options[selectElement.selectedIndex];
+      const unitId = selectedOption.getAttribute('data-unit-id');
+
+      // Extracting the ID/Key from the element ID (works for both 0, 1, 2 and 171...)
+      const idMatch = selectElement.id.match(/\d+$/);
+      if (!idMatch) return;
+      const currentRowIndex = idMatch[0];
+
+      const unitSelector = $(`#unit${currentRowIndex}`);
+      unitSelector.val(String(unitId)).trigger('change.select2');
   }
 
   // 🔹 Remove row

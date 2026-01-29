@@ -148,19 +148,36 @@
 
   // 🔹 Keep all your existing functions exactly as they are
   function onItemNameChange(selectElement) {
-    const row = selectElement.closest('tr');
-    const selectedOption = selectElement.options[selectElement.selectedIndex];
+      const itemId = selectElement.value;
+      if (!itemId) return; // Ignore if "Select Item" is clicked
 
-    const itemId = selectedOption.value;
-    const unitId = selectedOption.getAttribute('data-unit-id');
+      // 1. Check for Duplicates
+      let isDuplicate = false;
+      $('.product-select').not(selectElement).each(function() {
+          if ($(this).val() == itemId) {
+              isDuplicate = true;
+              return false; // Break loop
+          }
+      });
 
-    const idMatch = selectElement.id.match(/\d+$/);
-    if (!idMatch) return;
+      if (isDuplicate) {
+          alert("This item is already added to the list. Please increase the quantity of the existing row instead.");
+          
+          // Reset the select2 and the value
+          $(selectElement).val('').trigger('change.select2');
+          return;
+      }
 
-    const index = idMatch[0];
-
-    const unitSelector = $(`#unit${index}`);
-    unitSelector.val(String(unitId)).trigger('change.select2');
+      // 2. Existing logic to set the unit
+      const selectedOption = selectElement.options[selectElement.selectedIndex];
+      const unitId = selectedOption.getAttribute('data-unit-id');
+      const idMatch = selectElement.id.match(/\d+$/);
+      
+      if (idMatch) {
+          const index = idMatch[0];
+          const unitSelector = $(`#unit${index}`);
+          unitSelector.val(String(unitId)).trigger('change.select2');
+      }
   }
 
   function removeRow(button) {
