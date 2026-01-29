@@ -120,8 +120,11 @@
         </div>
 
         <header class="page-header">
-            <div class="logo-container d-none d-md-block">
-                <div id="userbox" class="userbox" style="float:right !important;">
+            <div class="logo-container d-none d-md-block" style="float:right !important;">
+                <button id="syncCache" class="btn btn-danger btn-sm me-3 mt-2" title="Sync & Clear Cache">
+                    <i class="bx bx-sync"></i> <span class="d-none d-xl-inline-block">Sync</span>
+                </button>
+                <div id="userbox" class="userbox">
                     
                     <a href="#" data-bs-toggle="dropdown" style="margin-right: 20px;">
                         <div class="profile-info"> 
@@ -153,10 +156,8 @@
             </div>
 
             <div class="logo-container d-md-none">
-                <a href="/" class="logo">
-                    <img class="pt-2" src="/assets/img/billtrix-logo-black.png" width="35%" alt="BillTrix Logo" />
-                </a>
                 <div id="userbox" class="userbox" style="float:right !important;">
+                    
                     <a href="#" data-bs-toggle="dropdown" style="margin-right: 20px;">
                         <div class="profile-info"> 
                             <span class="name">{{session('user_name')}}</span>
@@ -199,5 +200,32 @@
                 </div>
             </div>
         </footer>
+        <script>
+            $('#syncCache').on('click', function() {
+                const $btn = $(this);
+                const originalHtml = $btn.html();
+                
+                // Disable button and show loading state
+                $btn.prop('disabled', true).html('<i class="bx bx-sync bx-spin"></i> Syncing...');
+
+                $.ajax({
+                    url: "{{ route('admin.clear-cache') }}",
+                    type: "POST",
+                    data: {
+                        _token: "{{ csrf_token() }}"
+                    },
+                    success: function(response) {
+                        alert('Cache cleared successfully!');
+                    },
+                    error: function() {
+                        alert('Something went wrong while clearing cache.');
+                    },
+                    complete: function() {
+                        // Restore button state
+                        $btn.prop('disabled', false).html(originalHtml);
+                    }
+                });
+            });
+        </script>
     </body>
 </html>

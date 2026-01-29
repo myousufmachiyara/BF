@@ -86,32 +86,28 @@ class DatabaseSeeder extends Seeder
         // ---------------------
         // CHART OF ACCOUNTS
         // ---------------------
-        // $coaData = [
-        //     ['account_code' => 'A001', 'name' => 'Cash in Hand', 'account_type' => 'cash', 'shoa_id' => 1, 'receivables' => 0, 'payables' => 0],
-        //     ['account_code' => 'A002', 'name' => 'Bank ABC', 'account_type' => 'bank', 'shoa_id' => 2, 'receivables' => 0, 'payables' => 0],
-        //     ['account_code' => 'A003', 'name' => 'Customer A', 'account_type' => 'customer', 'shoa_id' => 3, 'receivables' => 1000, 'payables' => 0],
-        //     ['account_code' => 'A004', 'name' => 'Inventory - Raw Material', 'account_type' => 'asset', 'shoa_id' => 4, 'receivables' => 0, 'payables' => 0],
-        //     ['account_code' => 'L001', 'name' => 'Vendor X', 'account_type' => 'vendor', 'shoa_id' => 5, 'receivables' => 0, 'payables' => 500],
-        //     ['account_code' => 'L002', 'name' => 'Bank Loan', 'account_type' => 'liability', 'shoa_id' => 6, 'receivables' => 0, 'payables' => 10000],
-        //     ['account_code' => 'E001', 'name' => 'Owner Capital', 'account_type' => 'equity', 'shoa_id' => 7, 'receivables' => 0, 'payables' => 0],
-        //     ['account_code' => 'R001', 'name' => 'Sales Income', 'account_type' => 'revenue', 'shoa_id' => 8, 'receivables' => 0, 'payables' => 0],
-        //     ['account_code' => 'EX001', 'name' => 'Purchase of Goods', 'account_type' => 'expenses', 'shoa_id' => 9, 'receivables' => 0, 'payables' => 0],
-        //     ['account_code' => 'EX002', 'name' => 'Salary Expense', 'account_type' => 'expenses', 'shoa_id' => 10, 'receivables' => 0, 'payables' => 0],
-        //     ['account_code' => 'EX003', 'name' => 'Rent Expense', 'account_type' => 'expenses', 'shoa_id' => 11, 'receivables' => 0, 'payables' => 0],
-        //     ['account_code' => 'EX004', 'name' => 'Utility Expense', 'account_type' => 'expenses', 'shoa_id' => 12, 'receivables' => 0, 'payables' => 0],
-        // ];
+        $coaData = [
+            ['account_code' => '104001', 'shoa_id' => 4, 'name' => 'Stock in Hand', 'account_type' => 'asset', 'receivables' => 0.00, 'payables' => 0.00],
+            ['account_code' => '103001', 'shoa_id' => 3, 'name' => 'Customer 01', 'account_type' => 'customer', 'receivables' => 12000.00, 'payables' => 0.00],
+            ['account_code' => '205001', 'shoa_id' => 5, 'name' => 'Vendor 01', 'account_type' => 'vendor', 'receivables' => 0.00, 'payables' => 7500.00],
+            ['account_code' => '101001', 'shoa_id' => 1, 'name' => 'Shop Cash', 'account_type' => 'cash', 'receivables' => 0.00, 'payables' => 0.00],
+            ['account_code' => '102001', 'shoa_id' => 2, 'name' => 'Meezan Yousuf', 'account_type' => 'bank', 'receivables' => 0.00, 'payables' => 0.00],
+            ['account_code' => '307001', 'shoa_id' => 7, 'name' => 'Owners Equity', 'account_type' => 'equity', 'receivables' => 0.00, 'payables' => 0.00],
+            ['account_code' => '408001', 'shoa_id' => 8, 'name' => 'Sales Revenue', 'account_type' => 'revenue', 'receivables' => 0.00, 'payables' => 0.00],
+            ['account_code' => '509001', 'shoa_id' => 9, 'name' => 'Cost of Goods Sold', 'account_type' => 'cogs', 'receivables' => 0.00, 'payables' => 0.00],
+        ];
 
-        // foreach ($coaData as $data) {
-        //     ChartOfAccounts::create(array_merge($data, [
-        //         'opening_date' => $now,
-        //         'credit_limit' => 0,
-        //         'remarks' => null,
-        //         'address' => null,
-        //         'phone_no' => null,
-        //         'created_by' => $userId,
-        //         'updated_by' => $userId,
-        //     ]));
-        // }
+        foreach ($coaData as $data) {
+            ChartOfAccounts::create(array_merge($data, [
+                'opening_date' => '2026-01-19',
+                'credit_limit' => 0.00,
+                'remarks'      => null,
+                'address'      => null,
+                'phone_no'     => null,
+                'created_by'   => $userId,
+                'updated_by'   => $userId,
+            ]));
+        }
 
         // ---------------------
         // Measurement Units

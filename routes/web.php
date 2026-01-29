@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Artisan;
 
 use App\Http\Controllers\{
     DashboardController,
@@ -26,6 +27,11 @@ use App\Http\Controllers\{
 };
 
 Auth::routes();
+Route::post('/clear-cache', function () {
+    Artisan::call('cache:clear');
+        
+    return response()->json(['status' => 'success', 'message' => 'Cache Cleared']);
+})->name('admin.clear-cache');
 
 Route::middleware(['auth'])->group(function () {
     // Dashboard
