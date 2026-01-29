@@ -13,7 +13,7 @@ class PurchaseInvoiceItem extends Model
         'unit',
         'price',
         'remarks',
-        
+        'sort_order', // Add this
     ];
 
     public function invoice()

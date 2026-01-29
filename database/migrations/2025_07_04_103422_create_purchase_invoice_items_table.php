@@ -16,13 +16,12 @@ return new class extends Migration
             $table->unsignedBigInteger('purchase_invoice_id');
             $table->unsignedBigInteger('item_id');
             $table->decimal('quantity', 15, 2);
-            $table->unsignedBigInteger('unit');
-
+            $table->foreignId('unit')->constrained('measurement_units')->onDelete('cascade');
             $table->decimal('price', 15, 2);
             $table->string('remarks')->nullable();
+            $table->integer('sort_order')->default(0);
             $table->timestamps();
 
-            $table->foreign('unit')->references('id')->on('measurement_units')->onDelete('cascade');
             $table->foreign('purchase_invoice_id')->references('id')->on('purchase_invoices')->onDelete('cascade');
             $table->foreign('item_id')->references('id')->on('products')->onDelete('cascade');
         });

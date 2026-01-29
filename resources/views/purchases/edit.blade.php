@@ -69,11 +69,11 @@
                 </tr>
               </thead>
               <tbody id="Purchase1Table">
-                @foreach ($invoice->items as $key => $item)
+                @foreach ($invoice->items as $index => $item)                
                 <tr>
-                  <td class="serial-no">{{ $key + 1 }}</td>
+                  <td class="serial-no">{{ $index + 1 }}</td>
                   <td>
-                    <select name="items[{{ $key }}][item_id]" id="item_name{{ $key+1 }}" 
+                    <select name="items[{{ $index }}][item_id]" id="item_name{{ $index }}" 
                             class="form-control select2-js product-select" onchange="onItemNameChange(this)">
                       <option value="">Select Item</option>
                       @foreach ($products as $product)
@@ -84,14 +84,12 @@
                       @endforeach
                     </select>
                   </td>
-
                   <td>
-                    <input type="number" name="items[{{ $key }}][quantity]" id="pur_qty{{ $key+1 }}" 
-                           class="form-control quantity" value="{{ $item->quantity }}" step="any" onchange="rowTotal({{ $key+1 }})">
+                    <input type="number" name="items[{{ $index }}][quantity]" id="pur_qty{{ $index }}" 
+                          class="form-control quantity" value="{{ $item->quantity }}" step="any" onchange="rowTotal({{ $index }})">
                   </td>
-
                   <td>
-                    <select name="items[{{ $key }}][unit]" id="unit{{ $key+1 }}" class="form-control" required>
+                    <select name="items[{{ $index }}][unit]" id="unit{{ $index }}" class="form-control select2-js" required>
                       <option value="">-- Select --</option>
                       @foreach ($units as $unit)
                         <option value="{{ $unit->id }}" {{ $item->unit == $unit->id ? 'selected' : '' }}>
@@ -100,19 +98,15 @@
                       @endforeach
                     </select>
                   </td>
-
                   <td>
-                    <input type="number" name="items[{{ $key }}][price]" id="pur_price{{ $key+1 }}" 
-                           class="form-control" value="{{ $item->price }}" step="any" onchange="rowTotal({{ $key+1 }})">
+                    <input type="number" name="items[{{ $index }}][price]" id="pur_price{{ $index }}" 
+                          class="form-control" value="{{ $item->price }}" step="any" onchange="rowTotal({{ $index }})">
                   </td>
-
                   <td>
-                    <input type="number" id="amount{{ $key+1 }}" class="form-control" value="{{ $item->quantity * $item->price }}" step="any" disabled>
+                    <input type="number" id="amount{{ $index }}" class="form-control" value="{{ $item->quantity * $item->price }}" step="any" disabled>
                   </td>
-
                   <td>
                     <button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)"><i class="fas fa-times"></i></button>
-                    <input type="hidden" name="items[{{ $key }}][barcode]" id="barcode{{ $key+1 }}" value="{{ $item->barcode }}">
                   </td>
                 </tr>
                 @endforeach
@@ -153,7 +147,7 @@
   var products = @json($products);
 
   // 🔹 Set index to start after existing rows
-  var index = $('#Purchase1Table tr').length + 1;
+  var index = {{ $invoice->items->count() }};
 
   function updateSerialNumbers() {
     $('#Purchase1Table tr').each(function (index) {
@@ -213,48 +207,42 @@
 
   // 🔹 Add new row
   function addNewRow() {
-    let table = $('#Purchase1Table');
-    let rowIndex = index - 1;
-
-    let newRow = `
-      <tr>
-        <td class="serial-no"></td>
-        <td>
-          <select name="items[${rowIndex}][item_id]" id="item_name${index}" class="form-control select2-js product-select" onchange="onItemNameChange(this)">
-            <option value="">Select Item</option>
-            ${products.map(product => 
-              `<option value="${product.id}" data-barcode="${product.barcode}" data-unit-id="${product.measurement_unit}">
-                ${product.name}
-              </option>`).join('')}
-          </select>
-        </td>
-
-        <td><input type="number" name="items[${rowIndex}][quantity]" id="pur_qty${index}" class="form-control quantity" value="0" step="any" onchange="rowTotal(${index})"></td>
-
-        <td>
-          <select name="items[${rowIndex}][unit]" id="unit${index}" class="form-control" required>
-            <option value="">-- Select --</option>
-            @foreach ($units as $unit)
-              <option value="{{ $unit->id }}">{{ $unit->name }} ({{ $unit->shortcode }})</option>
-            @endforeach
-          </select>
-        </td>
-
-        <td><input type="number" name="items[${rowIndex}][price]" id="pur_price${index}" class="form-control" value="0" step="any" onchange="rowTotal(${index})"></td>
-        <td><input type="number" id="amount${index}" class="form-control" value="0" step="any" disabled></td>
-        <td>
-          <button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)"><i class="fas fa-times"></i></button>
-          <input type="hidden" name="items[${rowIndex}][barcode]" id="barcode${index}">
-        </td>
-      </tr>
-    `;
-    table.append(newRow);
-    $('#itemCount').val(index);
-    $(`#item_name${index}`).select2();
-    $(`#unit${index}`).select2();
-    index++;
-    updateSerialNumbers();
-
+      let table = $('#Purchase1Table');
+      // Calculate a unique key based on current time to avoid any ID clashing
+      let newKey = Date.now(); 
+      
+      let newRow = `
+        <tr>
+          <td class="serial-no"></td>
+          <td>
+            <select name="items[${newKey}][item_id]" id="item_name${newKey}" class="form-control select2-js product-select" onchange="onItemNameChange(this)">
+              <option value="">Select Item</option>
+              ${products.map(product => 
+                `<option value="${product.id}" data-unit-id="${product.measurement_unit}">
+                  ${product.name}
+                </option>`).join('')}
+            </select>
+          </td>
+          <td><input type="number" name="items[${newKey}][quantity]" id="pur_qty${newKey}" class="form-control quantity" value="0" step="any" onchange="rowTotal(${newKey})"></td>
+          <td>
+            <select name="items[${newKey}][unit]" id="unit${newKey}" class="form-control select2-js" required>
+              <option value="">-- Select --</option>
+              @foreach ($units as $unit)
+                <option value="{{ $unit->id }}">{{ $unit->name }}</option>
+              @endforeach
+            </select>
+          </td>
+          <td><input type="number" name="items[${newKey}][price]" id="pur_price${newKey}" class="form-control" value="0" step="any" onchange="rowTotal(${newKey})"></td>
+          <td><input type="number" id="amount${newKey}" class="form-control" value="0" step="any" disabled></td>
+          <td>
+            <button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)"><i class="fas fa-times"></i></button>
+          </td>
+        </tr>
+      `;
+      table.append(newRow);
+      $(`#item_name${newKey}, #unit${newKey}`).select2({ width: '100%' });
+      updateSerialNumbers();
+      index++; // Increment for the next row  
   }
 
   // 🔹 Row total

@@ -62,7 +62,7 @@ class PurchaseInvoiceController extends Controller
             'attachments.*' => 'nullable|file|mimes:jpg,jpeg,png,pdf,zip|max:2048',
             'items' => 'required|array|min:1', // Ensure items array exists
             'items.*.item_id' => 'required|exists:products,id',
-            'items.*.quantity' => 'required|numeric|min:0.01',
+            'items.*.quantity' => 'required|numeric|min:1',
             'items.*.unit' => 'required|exists:measurement_units,id',
             'items.*.price' => 'required|numeric|min:0',
         ]);
@@ -90,7 +90,10 @@ class PurchaseInvoiceController extends Controller
             $products = Product::pluck('name', 'id');
 
             // 3. Create Items & Calculate Total
-            foreach ($request->items as $itemData) {
+
+            $position = 0; // Initialize manual counter
+
+            foreach ($request->items as $index => $itemData) {                
                 $lineTotal = ($itemData['quantity'] ?? 0) * ($itemData['price'] ?? 0);
                 $totalAmount += $lineTotal; // FIXED: Adding to total
 
@@ -101,9 +104,10 @@ class PurchaseInvoiceController extends Controller
                     'unit'      => $itemData['unit'] ?? '',
                     'price'     => $itemData['price'] ?? 0,
                     'remarks'   => $itemData['item_remarks'] ?? null,
+                    'sort_order' => $position, // Use clean counter instead of $index                
                 ]);
+                $position++;
             }
-
             // 4. Find Debit Account (Inventory/Stock)
             $inventoryAccount = ChartOfAccounts::where('name', 'Stock in Hand')->first();
 
@@ -145,7 +149,10 @@ class PurchaseInvoiceController extends Controller
 
     public function edit($id)
     {
-        $invoice = PurchaseInvoice::with(['items', 'attachments'])->findOrFail($id);
+        $invoice = PurchaseInvoice::with(['items' => function($q) {
+            $q->orderBy('sort_order', 'asc');
+        }, 'attachments'])->findOrFail($id);        
+
         $user = auth()->user();
 
         // Only admin or creator can edit
@@ -171,7 +178,7 @@ class PurchaseInvoiceController extends Controller
             'attachments.*' => 'nullable|file|mimes:jpg,jpeg,png,pdf,zip|max:2048',
             'items' => 'required|array|min:1',
             'items.*.item_id' => 'required|exists:products,id',
-            'items.*.quantity' => 'required|numeric|min:0.01',
+            'items.*.quantity' => 'required|numeric|min:1',
             'items.*.unit' => 'required|exists:measurement_units,id',
             'items.*.price' => 'required|numeric|min:0',
             'convance_charges' => 'nullable|numeric|min:0',
@@ -195,15 +202,18 @@ class PurchaseInvoiceController extends Controller
 
             // 2. Refresh Items
             $invoice->items()->delete();
-            
+
             $totalItemsAmount = 0;
             $products = Product::pluck('name', 'id');
 
-            foreach ($request->items as $itemData) {
+            // USE A MANUAL COUNTER instead of the $index from the request
+            $position = 0; 
+
+            foreach ($request->items as $itemData) { 
                 if (empty($itemData['item_id'])) continue;
 
                 $lineTotal = ($itemData['quantity'] ?? 0) * ($itemData['price'] ?? 0);
-                $totalItemsAmount += $lineTotal; // FIXED: Accumulating amount
+                $totalItemsAmount += $lineTotal;
 
                 $invoice->items()->create([
                     'item_id'      => $itemData['item_id'],
@@ -213,7 +223,10 @@ class PurchaseInvoiceController extends Controller
                     'unit'         => $itemData['unit'] ?? '',
                     'price'        => $itemData['price'] ?? 0,
                     'remarks'      => $itemData['item_remarks'] ?? null,
+                    'sort_order'   => $position
                 ]);
+
+                $position++; // Increment for the next item
             }
 
             // 3. Calculate Final Net Amount (Items + Charges - Discount)
@@ -345,7 +358,9 @@ class PurchaseInvoiceController extends Controller
 
     public function print($id)
     {
-        $invoice = PurchaseInvoice::with(['vendor', 'items'])->findOrFail($id);
+        $invoice = PurchaseInvoice::with(['vendor', 'items' => function($q) {
+            $q->orderBy('sort_order', 'asc');
+        }])->findOrFail($id);
 
         $pdf = new \TCPDF();
 
