@@ -185,6 +185,14 @@
   $(document).ready(function () {
     $('.select2-js').select2();
 
+    // --- SKU Auto-generation Logic ---
+    $('input[name="name"]').on('input', function() {
+      let name = $(this).val();
+      // Replace spaces with hyphens and convert to uppercase
+      let sku = name.trim().replace(/\s+/g, '-').toUpperCase();
+      $('#sku').val(sku);
+    });
+
     document.getElementById("imageUpload").addEventListener("change", function(event) {
       const files = event.target.files;
       const previewContainer = document.getElementById("previewContainer");
