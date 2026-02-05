@@ -101,38 +101,44 @@ class InventoryReportController extends Controller
             $query = Product::query();
             if ($itemId) $query->where('id', $itemId);
 
-            $stockInHand = $query->get()->map(function ($product) use ($costingMethod) {
-            // Added Join and whereNull to exclude deleted records
-            $tIn = DB::table('purchase_invoice_items')
-                ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
-                ->where('purchase_invoice_items.item_id', $product->id)
-                ->whereNull('purchase_invoices.deleted_at') // Crucial check
-                ->sum('purchase_invoice_items.quantity');
+            $stockInHand = $query->get()->map(function ($product) use ($costingMethod, $to) {
+                // Only count purchases UP TO the $to date
+                $tIn = DB::table('purchase_invoice_items')
+                    ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
+                    ->where('purchase_invoice_items.item_id', $product->id)
+                    ->where('purchase_invoices.invoice_date', '<=', $to) // Date Filter
+                    ->whereNull('purchase_invoices.deleted_at')
+                    ->sum('purchase_invoice_items.quantity');
 
-            $tOut = DB::table('sale_invoice_items')
-                ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
-                ->where('sale_invoice_items.product_id', $product->id)
-                ->whereNull('sale_invoices.deleted_at') // Crucial check
-                ->sum('sale_invoice_items.quantity');
+                // Only count sales UP TO the $to date
+                $tOut = DB::table('sale_invoice_items')
+                    ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
+                    ->where('sale_invoice_items.product_id', $product->id)
+                    ->where('sale_invoices.date', '<=', $to) // Date Filter
+                    ->whereNull('sale_invoices.deleted_at')
+                    ->sum('sale_invoice_items.quantity');
 
-            $tCustom = DB::table('sale_item_customization')
-                ->join('sale_invoices', 'sale_item_customization.sale_invoice_id', '=', 'sale_invoices.id')
-                ->where('sale_item_customization.item_id', $product->id)
-                ->whereNull('sale_invoices.deleted_at') // Crucial check
-                ->count();
+                // Only count customizations UP TO the $to date
+                $tCustom = DB::table('sale_item_customization')
+                    ->join('sale_invoices', 'sale_item_customization.sale_invoice_id', '=', 'sale_invoices.id')
+                    ->where('sale_item_customization.item_id', $product->id)
+                    ->where('sale_invoices.date', '<=', $to) // Date Filter
+                    ->whereNull('sale_invoices.deleted_at')
+                    ->count();
                 
                 $qty = $tIn - $tOut - $tCustom;
 
-                // Price/Costing Logic
+                // Price Logic (Usually we want latest price up to the $to date as well)
+                $priceQuery = DB::table('purchase_invoice_items')
+                    ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
+                    ->where('item_id', $product->id)
+                    ->where('purchase_invoices.invoice_date', '<=', $to)
+                    ->whereNull('purchase_invoices.deleted_at');
+
                 if ($costingMethod == 'latest') {
-                    $price = DB::table('purchase_invoice_items')
-                        ->where('item_id', $product->id)
-                        ->latest('id')
-                        ->value('price') ?? 0;
+                    $price = $priceQuery->latest('purchase_invoices.invoice_date')->value('price') ?? 0;
                 } else {
-                    $price = DB::table('purchase_invoice_items')
-                        ->where('item_id', $product->id)
-                        ->avg('price') ?? 0;
+                    $price = $priceQuery->avg('price') ?? 0;
                 }
 
                 return [
