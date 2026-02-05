@@ -102,9 +102,24 @@ class InventoryReportController extends Controller
             if ($itemId) $query->where('id', $itemId);
 
             $stockInHand = $query->get()->map(function ($product) use ($costingMethod) {
-                $tIn = DB::table('purchase_invoice_items')->where('item_id', $product->id)->sum('quantity');
-                $tOut = DB::table('sale_invoice_items')->where('product_id', $product->id)->sum('quantity');
-                $tCustom = DB::table('sale_item_customization')->where('item_id', $product->id)->count();
+            // Added Join and whereNull to exclude deleted records
+            $tIn = DB::table('purchase_invoice_items')
+                ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
+                ->where('purchase_invoice_items.item_id', $product->id)
+                ->whereNull('purchase_invoices.deleted_at') // Crucial check
+                ->sum('purchase_invoice_items.quantity');
+
+            $tOut = DB::table('sale_invoice_items')
+                ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
+                ->where('sale_invoice_items.product_id', $product->id)
+                ->whereNull('sale_invoices.deleted_at') // Crucial check
+                ->sum('sale_invoice_items.quantity');
+
+            $tCustom = DB::table('sale_item_customization')
+                ->join('sale_invoices', 'sale_item_customization.sale_invoice_id', '=', 'sale_invoices.id')
+                ->where('sale_item_customization.item_id', $product->id)
+                ->whereNull('sale_invoices.deleted_at') // Crucial check
+                ->count();
                 
                 $qty = $tIn - $tOut - $tCustom;
 
