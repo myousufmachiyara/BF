@@ -74,29 +74,29 @@
                         <th>Description</th>
                         <th>Qty In</th>
                         <th>Qty Out</th>
-                    </tr>
+                        <th>Balance</th> </tr>
                 </thead>
-
                 <tbody>
-                    {{-- OPENING BALANCE --}}
                     <tr class="table-warning">
                         <td colspan="3"><strong>Opening Balance</strong></td>
                         <td class="text-success">{{ $openingQty }}</td>
                         <td class="text-danger">0</td>
+                        <td><strong>{{ $openingQty }}</strong></td>
                     </tr>
 
+                    @php $runningBal = $openingQty; @endphp
                     @forelse($itemLedger as $row)
+                        @php $runningBal += ($row->qty_in - $row->qty_out); @endphp
                         <tr>
                             <td>{{ $row->date }}</td>
                             <td>{{ $row->type }}</td>
                             <td>{{ $row->description }}</td>
                             <td class="text-success">{{ $row->qty_in }}</td>
                             <td class="text-danger">{{ $row->qty_out }}</td>
+                            <td><strong>{{ $runningBal }}</strong></td>
                         </tr>
                     @empty
-                        <tr>
-                            <td colspan="5" class="text-center">No records found</td>
-                        </tr>
+                        <tr><td colspan="6" class="text-center">No records found</td></tr>
                     @endforelse
                 </tbody>
 
