@@ -17,95 +17,142 @@ class InventoryReportController extends Controller
         $costingMethod = $request->get('costing_method', 'avg');
 
         $products = Product::orderBy('name', 'asc')->get();
+        
         $itemLedger = collect();
         $openingQty = 0;
         $stockInHand = collect();
 
-        // ================= ITEM LEDGER =================
+        // ================= ITEM LEDGER (Specific Product) =================
         if ($tab == 'IL' && $itemId) {
-            // 1. Opening Balance (Strictly before $from)
+            
+            // 1. Calculate Opening Balance (Purchases - Sales - Customizations) before $from date
+            // Calculate Opening Balance
             $opPurchase = DB::table('purchase_invoice_items')
-                ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
-                ->where('purchase_invoice_items.item_id', $itemId)
-                ->where('purchase_invoices.invoice_date', '<', $from)
-                ->whereNull('purchase_invoices.deleted_at')->sum('purchase_invoice_items.quantity');
+            ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
+            ->where('purchase_invoice_items.item_id', $itemId)
+            ->where('purchase_invoices.invoice_date', '<', $from)
+            ->whereNull('purchase_invoices.deleted_at') // Add this
+            ->sum('purchase_invoice_items.quantity');
 
             $opSale = DB::table('sale_invoice_items')
-                ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
-                ->where('sale_invoice_items.product_id', $itemId)
-                ->where('sale_invoices.date', '<', $from)
-                ->whereNull('sale_invoices.deleted_at')->sum('sale_invoice_items.quantity');
+            ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
+            ->where('sale_invoice_items.product_id', $itemId)
+            ->where('sale_invoices.date', '<', $from)
+            ->whereNull('sale_invoices.deleted_at') // Add this
+            ->sum('sale_invoice_items.quantity');
 
             $opCustom = DB::table('sale_item_customization')
-                ->join('sale_invoices', 'sale_item_customization.sale_invoice_id', '=', 'sale_invoices.id')
-                ->where('sale_item_customization.item_id', $itemId)
-                ->where('sale_invoices.date', '<', $from)
-                ->whereNull('sale_invoices.deleted_at')->count();
+            ->join('sale_invoices', 'sale_item_customization.sale_invoice_id', '=', 'sale_invoices.id')
+            ->where('sale_item_customization.item_id', $itemId)
+            ->where('sale_invoices.date', '<', $from)
+            ->whereNull('sale_invoices.deleted_at') // Add this
+            ->count();
 
             $openingQty = $opPurchase - $opSale - $opCustom;
 
-            // 2. Ledger Transactions (Filtered by Date AND Soft Deletes)
+            // 2. Combine Transactions using Triple UNION
+            
+            // SOURCE 1: Purchases (Stock In)
             $purchases = DB::table('purchase_invoice_items')
                 ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
-                ->select('purchase_invoices.invoice_date as date', DB::raw("'Purchase' as type"), 'purchase_invoices.invoice_no as description', 'purchase_invoice_items.quantity as qty_in', DB::raw("0 as qty_out"))
+                ->select(
+                    'purchase_invoices.invoice_date as date',
+                    DB::raw("'Purchase' as type"),
+                    'purchase_invoices.invoice_no as description',
+                    'purchase_invoice_items.quantity as qty_in',
+                    DB::raw("0 as qty_out")
+                )
                 ->where('purchase_invoice_items.item_id', $itemId)
-                ->whereNull('purchase_invoices.deleted_at')
                 ->whereBetween('purchase_invoices.invoice_date', [$from, $to]);
 
+            // SOURCE 2: Customizations (Stock Out)
             $customizations = DB::table('sale_item_customization')
                 ->join('sale_invoices', 'sale_item_customization.sale_invoice_id', '=', 'sale_invoices.id')
-                ->select('sale_invoices.date as date', DB::raw("'Customization' as type"), 'sale_invoices.invoice_no as description', DB::raw("0 as qty_in"), DB::raw("1 as qty_out"))
+                ->select(
+                    'sale_invoices.date as date',
+                    DB::raw("'Customization' as type"),
+                    'sale_invoices.invoice_no as description',
+                    DB::raw("0 as qty_in"),
+                    DB::raw("1 as qty_out")
+                )
                 ->where('sale_item_customization.item_id', $itemId)
-                ->whereNull('sale_invoices.deleted_at')
                 ->whereBetween('sale_invoices.date', [$from, $to]);
 
-            $sales = DB::table('sale_invoice_items')
+            // SOURCE 3: Standard Sales (Stock Out)
+            $itemLedger = DB::table('sale_invoice_items')
                 ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
-                ->select('sale_invoices.date as date', DB::raw("'Sale' as type"), 'sale_invoices.invoice_no as description', DB::raw("0 as qty_in"), 'sale_invoice_items.quantity as qty_out')
+                ->select(
+                    'sale_invoices.date as date',
+                    DB::raw("'Sale' as type"),
+                    'sale_invoices.invoice_no as description',
+                    DB::raw("0 as qty_in"),
+                    'sale_invoice_items.quantity as qty_out'
+                )
                 ->where('sale_invoice_items.product_id', $itemId)
-                ->whereNull('sale_invoices.deleted_at')
-                ->whereBetween('sale_invoices.date', [$from, $to]);
-
-            $itemLedger = $purchases->union($customizations)->union($sales)->orderBy('date', 'asc')->get();
+                ->whereBetween('sale_invoices.date', [$from, $to])
+                ->union($purchases)
+                ->union($customizations)
+                ->orderBy('date', 'asc')
+                ->get();
         }
 
-        // ================= STOCK IN HAND =================
+        // ================= STOCK IN HAND (Current Snapshot) =================
         if ($tab == 'SR') {
             $query = Product::query();
             if ($itemId) $query->where('id', $itemId);
 
             $stockInHand = $query->get()->map(function ($product) use ($costingMethod, $to) {
+                // Only count purchases UP TO the $to date
                 $tIn = DB::table('purchase_invoice_items')
                     ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
                     ->where('purchase_invoice_items.item_id', $product->id)
-                    ->where('purchase_invoices.invoice_date', '<=', $to)
-                    ->whereNull('purchase_invoices.deleted_at')->sum('purchase_invoice_items.quantity');
+                    ->where('purchase_invoices.invoice_date', '<=', $to) // Date Filter
+                    ->whereNull('purchase_invoices.deleted_at')
+                    ->sum('purchase_invoice_items.quantity');
 
+                // Only count sales UP TO the $to date
                 $tOut = DB::table('sale_invoice_items')
                     ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
                     ->where('sale_invoice_items.product_id', $product->id)
-                    ->where('sale_invoices.date', '<=', $to)
-                    ->whereNull('sale_invoices.deleted_at')->sum('sale_invoice_items.quantity');
+                    ->where('sale_invoices.date', '<=', $to) // Date Filter
+                    ->whereNull('sale_invoices.deleted_at')
+                    ->sum('sale_invoice_items.quantity');
 
+                // Only count customizations UP TO the $to date
                 $tCustom = DB::table('sale_item_customization')
                     ->join('sale_invoices', 'sale_item_customization.sale_invoice_id', '=', 'sale_invoices.id')
                     ->where('sale_item_customization.item_id', $product->id)
-                    ->where('sale_invoices.date', '<=', $to)
-                    ->whereNull('sale_invoices.deleted_at')->count();
-
+                    ->where('sale_invoices.date', '<=', $to) // Date Filter
+                    ->whereNull('sale_invoices.deleted_at')
+                    ->count();
+                
                 $qty = $tIn - $tOut - $tCustom;
 
+                // Price Logic (Usually we want latest price up to the $to date as well)
                 $priceQuery = DB::table('purchase_invoice_items')
                     ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
-                    ->where('item_id', $product->id)->where('purchase_invoices.invoice_date', '<=', $to)->whereNull('purchase_invoices.deleted_at');
+                    ->where('item_id', $product->id)
+                    ->where('purchase_invoices.invoice_date', '<=', $to)
+                    ->whereNull('purchase_invoices.deleted_at');
 
-                if ($costingMethod == 'latest') $price = $priceQuery->latest('purchase_invoices.invoice_date')->value('price') ?? 0;
-                else $price = $priceQuery->avg('price') ?? 0;
+                if ($costingMethod == 'latest') {
+                    $price = $priceQuery->latest('purchase_invoices.invoice_date')->value('price') ?? 0;
+                } else {
+                    $price = $priceQuery->avg('price') ?? 0;
+                }
 
-                return ['product' => $product->name, 'quantity' => $qty, 'price' => $price, 'total' => $qty * $price];
+                return [
+                    'product' => $product->name,
+                    'quantity' => $qty,
+                    'price' => $price,
+                    'total' => $qty * $price
+                ];
             });
         }
 
-        return view('reports.inventory_reports', compact('products', 'itemLedger', 'openingQty', 'stockInHand', 'tab', 'from', 'to'));
+        return view('reports.inventory_reports', compact(
+            'products', 'itemLedger', 'openingQty', 
+            'stockInHand', 'tab', 'from', 'to'
+        ));
     }
 }
