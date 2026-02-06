@@ -62,10 +62,11 @@ class InventoryReportController extends Controller
                     'purchase_invoice_items.quantity as qty_in',
                     DB::raw("0 as qty_out")
                 )
+                ->whereNull('purchase_invoices.deleted_at') // ADDED
                 ->where('purchase_invoice_items.item_id', $itemId)
                 ->whereBetween('purchase_invoices.invoice_date', [$from, $to]);
 
-            // SOURCE 2: Customizations (Stock Out)
+            // SOURCE 2: Customizations
             $customizations = DB::table('sale_item_customization')
                 ->join('sale_invoices', 'sale_item_customization.sale_invoice_id', '=', 'sale_invoices.id')
                 ->select(
@@ -73,13 +74,14 @@ class InventoryReportController extends Controller
                     DB::raw("'Customization' as type"),
                     'sale_invoices.invoice_no as description',
                     DB::raw("0 as qty_in"),
-                    DB::raw("1 as qty_out")
+                    DB::raw("1 as qty_out") // Ensure this matches your stock-in-hand logic
                 )
+                ->whereNull('sale_invoices.deleted_at') // ADDED
                 ->where('sale_item_customization.item_id', $itemId)
                 ->whereBetween('sale_invoices.date', [$from, $to]);
 
-            // SOURCE 3: Standard Sales (Stock Out)
-            $itemLedger = DB::table('sale_invoice_items')
+            // SOURCE 3: Standard Sales
+            $sales = DB::table('sale_invoice_items') // Renamed for clarity
                 ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
                 ->select(
                     'sale_invoices.date as date',
@@ -88,10 +90,12 @@ class InventoryReportController extends Controller
                     DB::raw("0 as qty_in"),
                     'sale_invoice_items.quantity as qty_out'
                 )
+                ->whereNull('sale_invoices.deleted_at') // ADDED
                 ->where('sale_invoice_items.product_id', $itemId)
-                ->whereBetween('sale_invoices.date', [$from, $to])
-                ->union($purchases)
-                ->union($customizations)
+                ->whereBetween('sale_invoices.date', [$from, $to]);
+
+            // Combine using Union
+            $itemLedger = $sales->union($purchases)->union($customizations)
                 ->orderBy('date', 'asc')
                 ->get();
         }
