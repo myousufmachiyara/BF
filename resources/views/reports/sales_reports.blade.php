@@ -14,9 +14,12 @@
         <li class="nav-item">
             <a class="nav-link {{ $tab==='CW'?'active':'' }}" href="{{ route('reports.sale', ['tab'=>'CW','from_date'=>$from,'to_date'=>$to]) }}">Customer Wise</a>
         </li>
-        <li class="nav-item">
-            <a class="nav-link {{ $tab==='PR'?'active':'' }}" href="{{ route('reports.sale', ['tab'=>'PR','from_date'=>$from,'to_date'=>$to]) }}">Profit Report</a>
-        </li>
+        {{-- Add this check --}}
+        @if(auth()->user()->hasRole('superadmin')) 
+            <li class="nav-item">
+                <a class="nav-link {{ $tab==='PR'?'active':'' }}" href="{{ route('reports.sale', ['tab'=>'PR','from_date'=>$from,'to_date'=>$to]) }}">Profit Report</a>
+            </li>
+        @endif
     </ul>
 
     <div class="tab-content mt-3">

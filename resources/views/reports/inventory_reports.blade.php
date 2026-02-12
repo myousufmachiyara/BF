@@ -164,7 +164,9 @@
                     <tr>
                         <th>Product</th>
                         <th>Quantity</th>
-                        <th>Rate</th>
+                        @if(auth()->user()->hasRole('superadmin'))
+                            <th>Rate</th>
+                        @endif                        
                         <th>Total</th>
                     </tr>
                 </thead>
@@ -174,7 +176,9 @@
                         <tr>
                             <td>{{ $row['product'] }}</td>
                             <td>{{ $row['quantity'] }}</td>
-                            <td>{{ number_format($row['price'],2) }}</td>
+                            @if(auth()->user()->hasRole('superadmin'))
+                                <td>{{ number_format($row['price'],2) }}</td>
+                            @endif
                             <td>{{ number_format($row['total'],2) }}</td>
                         </tr>
                     @empty
@@ -188,8 +192,16 @@
                     <tr>
                         <th class="text-end">Grand Total</th>
                         <th>{{ $grandQty }}</th>
-                        <th>-</th>
-                        <th>{{ number_format($grandTotal,2) }}</th>
+                        
+                        @if(auth()->user()->hasRole('superadmin'))
+                            {{-- Shows the dash under the Rate column --}}
+                            <th>-</th>
+                            {{-- Shows the actual Grand Total amount --}}
+                            <th>{{ number_format($grandTotal, 2) }}</th>
+                        @else
+                            {{-- Placeholder for non-admins so the table borders stay clean --}}
+                            <th>-</th>
+                        @endif
                     </tr>
                 </tfoot>
             </table>
