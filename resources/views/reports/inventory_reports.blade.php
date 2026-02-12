@@ -167,7 +167,6 @@
                         @if(auth()->user()->hasRole('superadmin'))
                             <th>Rate</th>
                             <th>Total</th>
-
                         @endif                        
                     </tr>
                 </thead>
@@ -180,13 +179,18 @@
                             @if(auth()->user()->hasRole('superadmin'))
                                 <td>{{ number_format($row['price'],2) }}</td>
                                 <td>{{ number_format($row['total'],2) }}</td>
-
                             @endif
                         </tr>
                     @empty
+                        @if(auth()->user()->hasRole('superadmin'))
                         <tr>
                             <td colspan="4" class="text-center">No stock found</td>
                         </tr>
+                        @else
+                        <tr>
+                            <td colspan="2" class="text-center">No stock found</td>
+                        </tr>
+                        @endif
                     @endforelse
                 </tbody>
 
@@ -200,9 +204,6 @@
                             <th>-</th>
                             {{-- Shows the actual Grand Total amount --}}
                             <th>{{ number_format($grandTotal, 2) }}</th>
-                        @else
-                            {{-- Placeholder for non-admins so the table borders stay clean --}}
-                            <th>-</th>
                         @endif
                     </tr>
                 </tfoot>
