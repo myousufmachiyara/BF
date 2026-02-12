@@ -24,7 +24,11 @@
 
     <div class="tab-content mt-3">
         {{-- SALES REGISTER --}}
+
         <div id="SR" class="tab-pane fade {{ $tab==='SR'?'show active':'' }}">
+            @if (session('error'))
+                <div class="alert alert-danger">{{ session('error') }}</div>
+            @endif
             <form method="GET" action="{{ route('reports.sale') }}" class="row g-3 mb-3">
                 <input type="hidden" name="tab" value="SR">
                 <div class="col-md-3">
