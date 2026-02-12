@@ -166,8 +166,9 @@
                         <th>Quantity</th>
                         @if(auth()->user()->hasRole('superadmin'))
                             <th>Rate</th>
+                            <th>Total</th>
+
                         @endif                        
-                        <th>Total</th>
                     </tr>
                 </thead>
 
@@ -178,8 +179,9 @@
                             <td>{{ $row['quantity'] }}</td>
                             @if(auth()->user()->hasRole('superadmin'))
                                 <td>{{ number_format($row['price'],2) }}</td>
+                                <td>{{ number_format($row['total'],2) }}</td>
+
                             @endif
-                            <td>{{ number_format($row['total'],2) }}</td>
                         </tr>
                     @empty
                         <tr>
