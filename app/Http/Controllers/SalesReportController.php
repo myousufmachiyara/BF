@@ -113,8 +113,12 @@ class SalesReportController extends Controller
                 ->values();
         }
 
-        /* ================= PROFIT REPORT (Synced + Customization Costing) ================= */
-        if ($tab === 'PR') {
+        if ($request->tab === 'PR' && !auth()->user()->hasRole('superadmin')) {
+            return redirect()->route('reports.sale', ['tab' => 'SR'])
+            ->with('error', 'You do not have permission to view Profit Reports.');
+        } 
+
+        if ($request->tab === 'PR') {            
             $sales = SaleInvoice::with(['account', 'items.customizations'])
                 ->whereBetween('date', [$from, $to])
                 ->get()
@@ -182,7 +186,7 @@ class SalesReportController extends Controller
                     ];
                 });
         }
-
+        
         $customers = ChartOfAccounts::where('account_type', 'customer')->get();
 
         return view('reports.sales_reports', compact(
