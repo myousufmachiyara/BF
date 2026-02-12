@@ -155,10 +155,12 @@
                 $grandTotal = $stockInHand->sum('total');
             @endphp
 
+            @if(auth()->user()->hasRole('superadmin'))
             <div class="mb-3 text-end">
                 <h4>Total Stock Value: {{ number_format($grandTotal,2) }}</h4>
             </div>
-
+            @endif
+            
             <table class="table table-bordered table-striped">
                 <thead>
                     <tr>
