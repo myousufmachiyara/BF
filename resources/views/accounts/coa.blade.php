@@ -58,6 +58,7 @@
                                     <th>A/C Name</th>
                                     <th>SubHead</th>
                                     <th>A/C Type</th>
+                                    <th>Visibility</th>
                                     <th>Phone</th>
                                     <th>Date</th>
                                     <th>Remarks</th>
@@ -72,6 +73,17 @@
                                     <td><strong>{{ $item->name }}</strong></td>
                                     <td>{{ $item->subHeadOfAccount->name }}</td>
                                     <td><strong>{{ $item->account_type }}</strong></td>
+                                    <td>
+                                        @if($item->visibility === 'private')
+                                            <span class="badge bg-warning text-dark">
+                                                <i class="fas fa-lock"></i> Private
+                                            </span>
+                                        @else
+                                            <span class="badge bg-success">
+                                                <i class="fas fa-globe"></i> Public
+                                            </span>
+                                        @endif
+                                    </td>
                                     <td>{{ $item->phone_no }}</td>
                                     <td>{{ \Carbon\Carbon::parse($item->opening_date)->format('d-m-y') }}</td>
                                     <td>{{ $item->remarks }}</td>
@@ -135,6 +147,17 @@
                                             <option value="{{$row->id}}">{{$row->name}}</option>
                                         @endforeach
                                     </select>
+                                </div>
+                                <div class="col-lg-6 mb-2">
+                                    <label>Visibility<span style="color: red;"><strong>*</strong></span></label>
+                                    <select class="form-control" name="visibility" required>
+                                        <option value="public" selected>Public (All Staff)</option>
+                                        <option value="private">Private (Superadmin Only)</option>
+                                    </select>
+                                    <small class="text-muted">
+                                        <i class="fas fa-info-circle"></i> 
+                                        Private accounts are only visible to superadmins
+                                    </small>
                                 </div>
                                 <div class="col-lg-6 mb-2">
                                     <label>Receivables<span style="color: red;"><strong>*</strong></span></label>
@@ -209,6 +232,17 @@
                                     </select>
                                 </div>
                                 <div class="col-lg-6 mb-2">
+                                    <label>Visibility<span style="color: red;"><strong>*</strong></span></label>
+                                    <select class="form-control" name="visibility" required>
+                                        <option value="public">Public (All Staff)</option>
+                                        <option value="private">Private (Superadmin Only)</option>
+                                    </select>
+                                    <small class="text-muted">
+                                        <i class="fas fa-info-circle"></i> 
+                                        Private accounts are only visible to superadmins
+                                    </small>
+                                </div>
+                                <div class="col-lg-6 mb-2">
                                     <label>SubHead Of Account<span style="color: red;"><strong>*</strong></span></label>
                                     <select data-plugin-selecttwo class="form-control select2-js" name="shoa_id" required>
                                         <option value="" disabled selected>Select Account SubHead</option>
@@ -263,27 +297,30 @@
     </div>
 
     <script>
-
         function editAccount(id) {
             fetch('/coa/' + id + '/edit')
-                .then(res => res.json())
-                .then(data => {
-                    $('#editForm').attr('action', '/coa/' + id);
-                    $('[name="name"]').val(data.name);
-                    $('[name="account_type"]').val(data.account_type).trigger('change');
-                    $('[name="shoa_id"]').val(data.shoa_id).trigger('change');
-                    $('[name="receivables"]').val(data.receivables);
-                    $('[name="payables"]').val(data.payables);
-                    $('[name="opening_date"]').val(data.opening_date);
-                    $('[name="remarks"]').val(data.remarks);
-                    $('[name="address"]').val(data.address);
-                    $('[name="phone_no"]').val(data.phone_no);
+            .then(res => res.json())
+            .then(data => {
+                $('#editForm').attr('action', '/coa/' + id);
+                
+                // Use jQuery selectors scoped to edit form
+                $('#editForm [name="name"]').val(data.name);
+                $('#editForm [name="account_type"]').val(data.account_type).trigger('change');
+                $('#editForm [name="shoa_id"]').val(data.shoa_id).trigger('change');
+                $('#editForm [name="visibility"]').val(data.visibility); // ✅ NEW FIELD
+                $('#editForm [name="receivables"]').val(data.receivables);
+                $('#editForm [name="payables"]').val(data.payables);
+                $('#editForm [name="credit_limit"]').val(data.credit_limit);
+                $('#editForm [name="opening_date"]').val(data.opening_date);
+                $('#editForm [name="remarks"]').val(data.remarks);
+                $('#editForm [name="address"]').val(data.address);
+                $('#editForm [name="phone_no"]').val(data.phone_no);
 
-                    $.magnificPopup.open({
-                        items: { src: '#editModal' },
-                        type: 'inline'
-                    });
+                $.magnificPopup.open({
+                    items: { src: '#editModal' },
+                    type: 'inline'
                 });
+            });
         }
     </script>
 @endsection

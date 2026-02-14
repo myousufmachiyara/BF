@@ -40,6 +40,7 @@ class COAController extends Controller
                     Rule::unique('chart_of_accounts')->whereNull('deleted_at'),
                 ],
                 'account_type' => 'nullable|string|max:255',
+                'visibility' => 'required|in:public,private', // ✅ NEW VALIDATION
                 'receivables' => 'required|numeric',
                 'payables' => 'required|numeric',
                 'credit_limit' => 'required|numeric',
@@ -75,6 +76,7 @@ class COAController extends Controller
                 'account_code' => $accountCode,
                 'name' => $request->name,
                 'account_type' => $request->account_type,
+                'visibility' => $request->visibility, // ✅ NEW FIELD
                 'receivables' => $request->receivables,
                 'payables' => $request->payables,
                 'credit_limit' => $request->credit_limit,
@@ -114,6 +116,7 @@ class COAController extends Controller
                 'shoa_id' => 'required|exists:sub_head_of_accounts,id',
                 'name' => 'required|string|max:255|unique:chart_of_accounts,name,' . $id,
                 'account_type' => 'nullable|string|max:255',
+                'visibility' => 'required|in:public,private', // ✅ NEW VALIDATION
                 'receivables' => 'required|numeric',
                 'payables' => 'required|numeric',
                 'opening_date' => 'required|date',
@@ -130,6 +133,7 @@ class COAController extends Controller
                 'shoa_id'      => $request->shoa_id,
                 'name'         => $request->name,
                 'account_type' => $request->account_type,
+                'visibility'   => $request->visibility, // ✅ NEW FIELD
                 'receivables'  => $request->receivables,
                 'payables'     => $request->payables,
                 'credit_limit' => $request->credit_limit,
