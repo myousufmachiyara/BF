@@ -203,7 +203,7 @@
                                     <select data-plugin-selecttwo class="form-control select2-js" name="account_type" required>
                                         <option value="" disabled>Select Account Type</option>
                                         @php
-                                            $types = ['customer','vendor','cash','bank','expenses','revenue','equity','others'];
+                                            $types = ['customer','other_customer','vendor','other_vendor','cash','bank','expenses','revenue','equity','others'];
                                         @endphp
                                         @foreach($types as $type)
                                             <option value="{{ $type }}" {{ (isset($account) && $account->account_type == $type) ? 'selected' : '' }}>{{ ucfirst($type) }}</option>
