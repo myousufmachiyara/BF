@@ -153,14 +153,6 @@
   let rowIndex = $('#itemTable tbody tr').length || 1;
 
   $(document).ready(function () {
-      // 1. GLOBAL FOCUS GUARD (Keeps search box focused when manually opened)
-      $(document).on('select2:open', function(e) {
-          setTimeout(() => {
-              const searchField = document.querySelector('.select2-container--open .select2-search__field');
-              if (searchField) searchField.focus();
-          }, 10);
-      });
-
       // Initialize non-table Select2s
       $('.select2-js').not('#itemTable select').select2({ width: '100%' });
 
@@ -187,7 +179,6 @@
           calcRowTotal($(this).closest('tr'));
       });
 
-      // FIXED: Corrected the combined selector for inputs
       $(document).on('input', '#amountReceived, #discountInput', calcTotal);
 
       $(document).on('change', 'select[name="type"]', function() {
@@ -201,13 +192,7 @@
         }
       });
 
-      // 1. Check stock when Product is selected
-      $(document).on('change', '.product-select', function () {
-          const option = $(this).find(':selected');
-          const name = option.text();
-      });
-
-      // 3. Check if Quantity entered exceeds available stock
+      // Check if Quantity entered exceeds available stock
       $(document).on('input', '.quantity', function () {
           const row = $(this).closest('tr');
           const stock = parseFloat(row.find('.product-select :selected').data('stock')) || 0;
@@ -280,7 +265,6 @@
       
       initProductSelect($newRow);
       initCustomizationSelect($newRow);
-      // Auto-open removed from here as well
   }
 
   function removeRow(btn) {
