@@ -61,10 +61,10 @@
             <thead>
               <tr>
                 <th>Item</th>
-                <th width="50%">Customize Item</th>
+                <th width="70%">Customize Item</th>
                 <th width="10%">Price</th>
-                <th width="8%">Qty</th>
-                <th width="10%">Total</th>
+                <th width="5%">Qty</th>
+                <th width="8%">Total</th>
                 <th></th>
               </tr>
             </thead>
