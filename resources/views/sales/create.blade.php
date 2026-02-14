@@ -60,7 +60,7 @@
           <table class="table table-bordered" id="itemTable">
             <thead>
               <tr>
-                <th>Item</th>
+                <th width="15%" >Item</th>
                 <th width="65%">Customize Item</th>
                 <th width="10%">Price</th>
                 <th width="8%">Qty</th>
