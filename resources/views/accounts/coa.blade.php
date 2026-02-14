@@ -118,9 +118,7 @@
                                     <select data-plugin-selecttwo class="form-control select2-js" name="account_type">
                                         <option value="" selected>Select Account Type</option>
                                         <option value="customer">Customer</option>
-                                        <option value="other_customer">Other Customer</option>
                                         <option value="vendor">Vendor</option>
-                                        <option value="other_vendor">Other Vendor</option>
                                         <option value="asset">Asset (Inventory/Fixed Assets)</option>
                                         <option value="cash">Cash</option>
                                         <option value="bank">Bank</option>
@@ -203,7 +201,7 @@
                                     <select data-plugin-selecttwo class="form-control select2-js" name="account_type" required>
                                         <option value="" disabled>Select Account Type</option>
                                         @php
-                                            $types = ['customer','other customer','vendor','other vendor','cash','bank','expenses','revenue','equity','others'];
+                                            $types = ['customer','vendor','cash','bank','expenses','revenue','equity'];
                                         @endphp
                                         @foreach($types as $type)
                                             <option value="{{ $type }}" {{ (isset($account) && $account->account_type == $type) ? 'selected' : '' }}>{{ ucfirst($type) }}</option>
