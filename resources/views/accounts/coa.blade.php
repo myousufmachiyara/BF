@@ -118,14 +118,15 @@
                                     <select data-plugin-selecttwo class="form-control select2-js" name="account_type">
                                         <option value="" selected>Select Account Type</option>
                                         <option value="customer">Customer</option>
+                                        <option value="other_customer">Other Customer</option>
                                         <option value="vendor">Vendor</option>
+                                        <option value="other_vendor">Other Vendor</option>
                                         <option value="asset">Asset (Inventory/Fixed Assets)</option>
                                         <option value="cash">Cash</option>
                                         <option value="bank">Bank</option>
                                         <option value="expenses">Expenses</option>
                                         <option value="revenue">Revenue</option>
                                         <option value="equity">Equity</option>
-                                        <option value="others">Others</option>
                                     </select>
                                 </div>
                                 <div class="col-lg-6 mb-2">
