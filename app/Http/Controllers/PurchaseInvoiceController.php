@@ -45,10 +45,17 @@ class PurchaseInvoiceController extends Controller
     public function create()
     {
         $products = Product::get();
-        $vendors = ChartOfAccounts::where('account_type', 'vendor')->get();
+        
+        // ✅ Filter vendors based on user role
+        $vendorsQuery = ChartOfAccounts::where('account_type', 'vendor');
+        if (!auth()->user()->hasRole('superadmin')) {
+            $vendorsQuery->where('visibility', 'public');
+        }
+        $vendors = $vendorsQuery->orderBy('name')->get();
+        
         $units = MeasurementUnit::all();
 
-        return view('purchases.create', compact('products', 'vendors','units'));
+        return view('purchases.create', compact('products', 'vendors', 'units'));
     }
 
     public function store(Request $request)
@@ -160,7 +167,12 @@ class PurchaseInvoiceController extends Controller
             abort(403, 'Unauthorized access');
         }
 
-        $vendors = ChartOfAccounts::where('account_type', 'vendor')->get();
+        // ✅ Filter vendors based on user role
+        $vendorsQuery = ChartOfAccounts::where('account_type', 'vendor');
+        if (!$user->hasRole('superadmin')) {
+            $vendorsQuery->where('visibility', 'public');
+        }
+        $vendors = $vendorsQuery->orderBy('name')->get();
         $products = Product::select('id', 'name', 'measurement_unit')->get();
         $units = MeasurementUnit::all();
 

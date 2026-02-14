@@ -25,21 +25,35 @@ class SaleInvoiceController extends Controller
     public function create()
     {
         $products = Product::orderBy('name', 'asc')
-            ->withSum('purchaseInvoices as total_purchased', 'quantity')
-            ->withSum('saleInvoices as total_sold', 'quantity')
-            ->withCount('saleInvoiceParts as total_customized')
-            ->get()
-            ->map(function ($product) {
-                $product->real_time_stock = ($product->total_purchased ?? 0) 
-                                        - ($product->total_sold ?? 0) 
-                                        - ($product->total_customized ?? 0);
-                return $product;
-            });
+        ->withSum('purchaseInvoices as total_purchased', 'quantity')
+        ->withSum('saleInvoices as total_sold', 'quantity')
+        ->withCount('saleInvoiceParts as total_customized')
+        ->get()
+        ->map(function ($product) {
+            $product->real_time_stock = ($product->total_purchased ?? 0) 
+            - ($product->total_sold ?? 0) 
+            - ($product->total_customized ?? 0);
+            return $product;
+        });
+
+        // ✅ Filter customers based on user role
+        $customersQuery = ChartOfAccounts::where('account_type', 'customer');
+        if (!auth()->user()->hasRole('superadmin')) {
+            $customersQuery->where('visibility', 'public');
+        }
+        $customers = $customersQuery->orderBy('name')->get();
+
+        // ✅ Filter payment accounts based on user role
+        $paymentAccountsQuery = ChartOfAccounts::whereIn('account_type', ['cash', 'bank']);
+        if (!auth()->user()->hasRole('superadmin')) {
+            $paymentAccountsQuery->where('visibility', 'public');
+        }
+        $paymentAccounts = $paymentAccountsQuery->orderBy('name')->get();
 
         return view('sales.create', [
             'products' => $products,
-            'customers' => ChartOfAccounts::where('account_type', 'customer')->get(),
-            'paymentAccounts' => ChartOfAccounts::whereIn('account_type', ['cash', 'bank'])->get(),
+            'customers' => $customers,
+            'paymentAccounts' => $paymentAccounts,
         ]);
     }
 
@@ -189,24 +203,38 @@ class SaleInvoiceController extends Controller
         
         // Calculate real-time stock exactly like the create method
         $products = Product::orderBy('name', 'asc')
-            ->withSum('purchaseInvoices as total_purchased', 'quantity')
-            ->withSum('saleInvoices as total_sold', 'quantity')
-            ->withCount('saleInvoiceParts as total_customized')
-            ->get()
-            ->map(function ($product) {
-                $product->real_time_stock = ($product->total_purchased ?? 0) - ($product->total_sold ?? 0) - ($product->total_customized ?? 0);
-                return $product;
-            });
+        ->withSum('purchaseInvoices as total_purchased', 'quantity')
+        ->withSum('saleInvoices as total_sold', 'quantity')
+        ->withCount('saleInvoiceParts as total_customized')
+        ->get()
+        ->map(function ($product) {
+            $product->real_time_stock = ($product->total_purchased ?? 0) - ($product->total_sold ?? 0) - ($product->total_customized ?? 0);
+            return $product;
+        });
 
         $amountReceived = Voucher::where('ac_cr_sid', $invoice->account_id)
-            ->where('remarks', 'LIKE', "%Invoice #{$invoice->invoice_no}%")
-            ->sum('amount');
+        ->where('remarks', 'LIKE', "%Invoice #{$invoice->invoice_no}%")
+        ->sum('amount');
+
+        // ✅ Filter customers based on user role
+        $customersQuery = ChartOfAccounts::where('account_type', 'customer');
+        if (!auth()->user()->hasRole('superadmin')) {
+            $customersQuery->where('visibility', 'public');
+        }
+        $customers = $customersQuery->orderBy('name')->get();
+
+        // ✅ Filter payment accounts based on user role
+        $paymentAccountsQuery = ChartOfAccounts::whereIn('account_type', ['cash', 'bank']);
+        if (!auth()->user()->hasRole('superadmin')) {
+            $paymentAccountsQuery->where('visibility', 'public');
+        }
+        $paymentAccounts = $paymentAccountsQuery->orderBy('name')->get();
 
         return view('sales.edit', [
             'invoice' => $invoice,
-            'products' => $products, // Now contains real_time_stock
-            'customers' => ChartOfAccounts::where('account_type', 'customer')->get(),
-            'paymentAccounts' => ChartOfAccounts::whereIn('account_type', ['cash', 'bank'])->get(),
+            'products' => $products,
+            'customers' => $customers,
+            'paymentAccounts' => $paymentAccounts,
             'amountReceived' => $amountReceived,
         ]);
     }
