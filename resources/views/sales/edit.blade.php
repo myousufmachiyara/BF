@@ -178,14 +178,6 @@
             updateStockLabel(row.find('.product-select')); // Show stock for existing items
         });
 
-        // 3. Select2 Search Focus Fix
-        $(document).on('select2:open', function(e) {
-            setTimeout(() => {
-                const searchField = document.querySelector('.select2-container--open .select2-search__field');
-                if (searchField) { searchField.focus(); }
-            }, 50); 
-        });
-
         // 4. Product Change: Update Price & Stock Label
         $(document).on('change', '.product-select', function () {
             const row = $(this).closest('tr');
