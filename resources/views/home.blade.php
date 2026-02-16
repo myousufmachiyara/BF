@@ -6,7 +6,7 @@
 	<div>
 		<h2 class="text-dark"><strong id="currentDate"></strong></h2>
 	</div>	
-	<div class="row">
+	{{-- <div class="row">
 		<div class="col-12 col-md-3 mb-2">	
 			<section class="card card-featured-left card-featured-success">
 				<div class="card-body icon-container data-container">
@@ -77,10 +77,8 @@
 				</div>
 			</section>
 		</div>
-	</div>
-	<div class="row">
-		
-	</div>
+	</div> --}}
+
 	<!-- <div class="tabs mt-3">
 		<ul class="nav nav-tabs">
 			<li class="nav-item">
