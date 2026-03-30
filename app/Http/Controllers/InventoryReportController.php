@@ -23,9 +23,10 @@ class InventoryReportController extends Controller
         $stockInHand = collect();
 
         // ================= ITEM LEDGER (Specific Product) =================
+        // ================= ITEM LEDGER (Specific Product) =================
         if ($tab == 'IL' && $itemId) {
-            
-            // 1. Calculate Opening Balance (Purchases - Sales - Customizations) before $from date
+
+            // Opening Balance
             $opPurchase = DB::table('purchase_invoice_items')
                 ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
                 ->where('purchase_invoice_items.item_id', $itemId)
@@ -40,8 +41,6 @@ class InventoryReportController extends Controller
                 ->whereNull('sale_invoices.deleted_at')
                 ->sum('sale_invoice_items.quantity');
 
-            // FIX: Join by PK using correct FK column 'sale_invoice_items_id'
-            // Sums the parent sale item's quantity instead of count() rows
             $opCustom = DB::table('sale_item_customization')
                 ->join('sale_invoices', 'sale_item_customization.sale_invoice_id', '=', 'sale_invoices.id')
                 ->join('sale_invoice_items', 'sale_invoice_items.id', '=', 'sale_item_customization.sale_invoice_items_id')
@@ -50,47 +49,58 @@ class InventoryReportController extends Controller
                 ->whereNull('sale_invoices.deleted_at')
                 ->sum('sale_invoice_items.quantity');
 
-            $openingQty = $opPurchase - $opSale - $opCustom;
+            // NEW: Purchase Returns reduce stock (you sent goods back)
+            $opPurchaseReturn = DB::table('purchase_return_items')
+                ->join('purchase_returns', 'purchase_return_items.purchase_return_id', '=', 'purchase_returns.id')
+                ->where('purchase_return_items.item_id', $itemId)
+                ->where('purchase_returns.return_date', '<', $from)
+                ->whereNull('purchase_returns.deleted_at')
+                ->sum('purchase_return_items.quantity');
 
-            // 2. Combine Transactions using Triple UNION
-            
-            // SOURCE 1: Purchases (Stock In)
+            // NEW: Sale Returns increase stock (customer sent goods back)
+            $opSaleReturn = DB::table('sale_return_items')
+                ->join('sale_returns', 'sale_return_items.sale_return_id', '=', 'sale_returns.id')
+                ->where('sale_return_items.product_id', $itemId)
+                ->where('sale_returns.return_date', '<', $from)
+                ->whereNull('sale_returns.deleted_at')
+                ->sum('sale_return_items.qty'); // note: qty not quantity
+
+            $openingQty = $opPurchase - $opSale - $opCustom - $opPurchaseReturn + $opSaleReturn;
+
+            // --- Period Transactions ---
+
             $purchases = DB::table('purchase_invoice_items')
                 ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
                 ->select(
-                    'purchase_invoices.invoice_date as date', 
-                    DB::raw("'Purchase' as type"), 
-                    'purchase_invoices.invoice_no as description', 
-                    'purchase_invoice_items.quantity as qty_in', 
+                    'purchase_invoices.invoice_date as date',
+                    DB::raw("'Purchase' as type"),
+                    'purchase_invoices.invoice_no as description',
+                    'purchase_invoice_items.quantity as qty_in',
                     DB::raw("0 as qty_out")
                 )
                 ->where('purchase_invoice_items.item_id', $itemId)
                 ->whereNull('purchase_invoices.deleted_at')
                 ->whereBetween('purchase_invoices.invoice_date', [$from, $to]);
 
-            // SOURCE 2: Sales (Stock Out)
             $sales = DB::table('sale_invoice_items')
                 ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
                 ->select(
-                    'sale_invoices.date as date', 
-                    DB::raw("'Sale' as type"), 
-                    DB::raw("CONCAT(sale_invoices.invoice_no, ' (Rate: ', sale_invoice_items.sale_price, ')') as description"), 
-                    DB::raw("0 as qty_in"), 
+                    'sale_invoices.date as date',
+                    DB::raw("'Sale' as type"),
+                    DB::raw("CONCAT(sale_invoices.invoice_no, ' (Rate: ', sale_invoice_items.sale_price, ')') as description"),
+                    DB::raw("0 as qty_in"),
                     'sale_invoice_items.quantity as qty_out'
                 )
                 ->where('sale_invoice_items.product_id', $itemId)
                 ->whereNull('sale_invoices.deleted_at')
                 ->whereBetween('sale_invoices.date', [$from, $to]);
 
-            // SOURCE 3: Customizations (Stock Out)
-            // FIX: Join by PK using correct FK column 'sale_invoice_items_id'
-            // e.g. 4 chairs sold → wheel/base/machine each deduct 4, not 1
             $customizations = DB::table('sale_item_customization')
                 ->join('sale_invoices', 'sale_item_customization.sale_invoice_id', '=', 'sale_invoices.id')
                 ->join('sale_invoice_items', 'sale_invoice_items.id', '=', 'sale_item_customization.sale_invoice_items_id')
                 ->select(
                     'sale_invoices.date as date',
-                    DB::raw("'Customization Fee' as type"),
+                    DB::raw("'Customization' as type"),
                     'sale_invoices.invoice_no as description',
                     DB::raw("0 as qty_in"),
                     'sale_invoice_items.quantity as qty_out'
@@ -99,8 +109,41 @@ class InventoryReportController extends Controller
                 ->whereNull('sale_invoices.deleted_at')
                 ->whereBetween('sale_invoices.date', [$from, $to]);
 
-            // Use unionAll to ensure duplicate invoice numbers with different rates are NOT merged
-            $itemLedger = $purchases->unionAll($customizations)->unionAll($sales)->orderBy('date', 'asc')->get();
+            // NEW: Purchase Returns — stock out
+            $purchaseReturns = DB::table('purchase_return_items')
+                ->join('purchase_returns', 'purchase_return_items.purchase_return_id', '=', 'purchase_returns.id')
+                ->select(
+                    'purchase_returns.return_date as date',
+                    DB::raw("'Purchase Return' as type"),
+                    'purchase_returns.invoice_no as description',
+                    DB::raw("0 as qty_in"),
+                    'purchase_return_items.quantity as qty_out'
+                )
+                ->where('purchase_return_items.item_id', $itemId)
+                ->whereNull('purchase_returns.deleted_at')
+                ->whereBetween('purchase_returns.return_date', [$from, $to]);
+
+            // NEW: Sale Returns — stock in
+            $saleReturns = DB::table('sale_return_items')
+                ->join('sale_returns', 'sale_return_items.sale_return_id', '=', 'sale_returns.id')
+                ->select(
+                    'sale_returns.return_date as date',
+                    DB::raw("'Sale Return' as type"),
+                    'sale_returns.invoice_no as description',
+                    'sale_return_items.qty as qty_in', // qty_in because stock comes back
+                    DB::raw("0 as qty_out")
+                )
+                ->where('sale_return_items.product_id', $itemId)
+                ->whereNull('sale_returns.deleted_at')
+                ->whereBetween('sale_returns.return_date', [$from, $to]);
+
+            $itemLedger = $purchases
+                ->unionAll($customizations)
+                ->unionAll($sales)
+                ->unionAll($purchaseReturns) // NEW
+                ->unionAll($saleReturns)     // NEW
+                ->orderBy('date', 'asc')
+                ->get();
         }
 
         // ================= STOCK IN HAND (Current Snapshot) =================
@@ -110,7 +153,6 @@ class InventoryReportController extends Controller
 
             $stockInHand = $query->get()->map(function ($product) use ($costingMethod, $to) {
 
-                // Only count purchases UP TO the $to date
                 $tIn = DB::table('purchase_invoice_items')
                     ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
                     ->where('purchase_invoice_items.item_id', $product->id)
@@ -118,7 +160,6 @@ class InventoryReportController extends Controller
                     ->whereNull('purchase_invoices.deleted_at')
                     ->sum('purchase_invoice_items.quantity');
 
-                // Only count sales UP TO the $to date
                 $tOut = DB::table('sale_invoice_items')
                     ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
                     ->where('sale_invoice_items.product_id', $product->id)
@@ -126,8 +167,6 @@ class InventoryReportController extends Controller
                     ->whereNull('sale_invoices.deleted_at')
                     ->sum('sale_invoice_items.quantity');
 
-                // FIX: Join by PK using correct FK column 'sale_invoice_items_id'
-                // Sum parent item quantity — 4 chairs sold = 4 of each part deducted
                 $tCustom = DB::table('sale_item_customization')
                     ->join('sale_invoices', 'sale_item_customization.sale_invoice_id', '=', 'sale_invoices.id')
                     ->join('sale_invoice_items', 'sale_invoice_items.id', '=', 'sale_item_customization.sale_invoice_items_id')
@@ -135,10 +174,26 @@ class InventoryReportController extends Controller
                     ->where('sale_invoices.date', '<=', $to)
                     ->whereNull('sale_invoices.deleted_at')
                     ->sum('sale_invoice_items.quantity');
-                
-                $qty = $tIn - $tOut - $tCustom;
 
-                // Price Logic: latest price or average up to the $to date
+                // NEW: Purchase Returns reduce stock
+                $tPurchaseReturn = DB::table('purchase_return_items')
+                    ->join('purchase_returns', 'purchase_return_items.purchase_return_id', '=', 'purchase_returns.id')
+                    ->where('purchase_return_items.item_id', $product->id)
+                    ->where('purchase_returns.return_date', '<=', $to)
+                    ->whereNull('purchase_returns.deleted_at')
+                    ->sum('purchase_return_items.quantity');
+
+                // NEW: Sale Returns increase stock
+                $tSaleReturn = DB::table('sale_return_items')
+                    ->join('sale_returns', 'sale_return_items.sale_return_id', '=', 'sale_returns.id')
+                    ->where('sale_return_items.product_id', $product->id)
+                    ->where('sale_returns.return_date', '<=', $to)
+                    ->whereNull('sale_returns.deleted_at')
+                    ->sum('sale_return_items.qty'); // note: qty not quantity
+
+                $qty = $tIn - $tOut - $tCustom - $tPurchaseReturn + $tSaleReturn;
+
+                // Price logic unchanged ...
                 $priceQuery = DB::table('purchase_invoice_items')
                     ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
                     ->where('item_id', $product->id)
@@ -155,7 +210,7 @@ class InventoryReportController extends Controller
                     'product'  => $product->name,
                     'quantity' => $qty,
                     'price'    => $price,
-                    'total'    => $qty * $price
+                    'total'    => $qty * $price,
                 ];
             });
         }
