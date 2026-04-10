@@ -8,19 +8,19 @@ use App\Models\SaleReturnItem;
 use App\Models\SaleInvoice;
 use App\Models\ChartOfAccounts;
 use App\Models\Product;
+use App\Models\Voucher;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 class SaleReturnController extends Controller
 {
     public function index()
     {
-        $returns = SaleReturn::with(['customer','items.product'])->latest()->get()
+        $returns = SaleReturn::with(['customer', 'items.product'])->latest()->get()
             ->map(function ($return) {
-                $return->total_amount = $return->items->sum(function ($item) {
-                    return $item->qty * $item->price; // adjust field name
-                });
+                $return->total_amount = $return->items->sum(fn($item) => $item->qty * $item->price);
                 return $return;
             });
 
@@ -30,103 +30,66 @@ class SaleReturnController extends Controller
     public function create()
     {
         return view('sale_returns.create', [
-            'products'  => Product::get(),
-            'customers'  => ChartOfAccounts::where('account_type', 'customer')->get(),
-            'invoices'  => SaleInvoice::latest()->get(), // optional link to original
+            'products'  => Product::orderBy('name')->get(),
+            'customers' => ChartOfAccounts::where('account_type', 'customer')->get(),
+            'invoices'  => SaleInvoice::latest()->get(),
         ]);
     }
 
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'customer_id'          => 'required|exists:chart_of_accounts,id',
-            'return_date'          => 'required|date',
-            'sale_invoice_no'      => 'nullable|string|max:50',
-            'remarks'              => 'nullable|string|max:500',
-            'items'                => 'required|array|min:1',
-            'items.*.product_id'   => 'required|exists:products,id',
-            'items.*.qty'          => 'required|numeric|min:1',
-            'items.*.price'        => 'required|numeric|min:0',
+            'customer_id'        => 'required|exists:chart_of_accounts,id',
+            'return_date'        => 'required|date',
+            'sale_invoice_no'    => 'nullable|string|max:50',
+            'remarks'            => 'nullable|string|max:500',
+            'items'              => 'required|array|min:1',
+            'items.*.product_id' => 'required|exists:products,id',
+            'items.*.qty'        => 'required|numeric|min:1',
+            'items.*.price'      => 'required|numeric|min:0',
         ]);
 
         DB::beginTransaction();
-
         try {
-            Log::info('[SaleReturn] Store request received', [
-                'user_id' => Auth::id(),
-                'payload' => $validated,
-            ]);
+            // Generate invoice number
+            $last       = SaleReturn::withTrashed()->orderBy('id', 'desc')->first();
+            $invoiceNo  = str_pad($last ? intval($last->invoice_no) + 1 : 1, 6, '0', STR_PAD_LEFT);
 
-            $lastInvoice = SaleReturn::withTrashed()
-            ->orderBy('id', 'desc')
-            ->first();
-
-            $nextNumber = $lastInvoice ? intval($lastInvoice->invoice_no) + 1 : 1;
-
-            $invoiceNo = str_pad($nextNumber, 6, '0', STR_PAD_LEFT);
-
-            // Create Sale Return
             $return = SaleReturn::create([
-                'invoice_no'=> $invoiceNo,
-                'account_id'     => $validated['customer_id'],
+                'invoice_no'      => $invoiceNo,
+                'account_id'      => $validated['customer_id'],
                 'return_date'     => $validated['return_date'],
                 'sale_invoice_no' => $validated['sale_invoice_no'] ?? null,
                 'remarks'         => $validated['remarks'] ?? null,
                 'created_by'      => Auth::id(),
             ]);
 
-            Log::info('[SaleReturn] Main record created', [
-                'return_id' => $return->id,
-                'customer'  => $return->customer_id,
-            ]);
-
-            // Create Sale Return Items
-            foreach ($validated['items'] as $idx => $item) {
-                try {
-                    $savedItem = SaleReturnItem::create([
-                        'sale_return_id' => $return->id,
-                        'product_id'     => $item['product_id'],
-                        'qty'            => $item['qty'],
-                        'price'          => $item['price'],
-                    ]);
-
-                    Log::debug('[SaleReturn] Item created', [
-                        'return_id'  => $return->id,
-                        'item_index' => $idx,
-                        'item_id'    => $savedItem->id,
-                        'product_id' => $item['product_id'],
-                    ]);
-                } catch (\Throwable $itemEx) {
-                    Log::error('[SaleReturn] Item save failed', [
-                        'return_id'  => $return->id,
-                        'item_index' => $idx,
-                        'error'      => $itemEx->getMessage(),
-                    ]);
-                    throw $itemEx; // rethrow so transaction rolls back
-                }
+            foreach ($validated['items'] as $item) {
+                SaleReturnItem::create([
+                    'sale_return_id' => $return->id,
+                    'product_id'     => $item['product_id'],
+                    'qty'            => $item['qty'],
+                    'price'          => $item['price'],
+                ]);
             }
 
-            DB::commit();
-            Log::info('[SaleReturn] Completed successfully', [
-                'return_id' => $return->id,
-                'by'        => Auth::id(),
-            ]);
+            // Create accounting voucher
+            $this->createVoucher(
+                $validated['customer_id'],
+                $validated['return_date'],
+                $validated['items'],
+                $invoiceNo
+            );
 
-            return redirect()
-                ->route('sale_return.index')
-                ->with('success', 'Sale return created successfully.');
+            DB::commit();
+            Log::info('[SaleReturn] Stored successfully', ['id' => $return->id]);
+
+            return redirect()->route('sale_return.index')->with('success', 'Sale return created successfully.');
+
         } catch (\Throwable $e) {
             DB::rollBack();
-            Log::error('[SaleReturn] Store failed', [
-                'user_id'   => Auth::id(),
-                'payload'   => $request->all(), // raw input for debugging
-                'error'     => $e->getMessage(),
-                'trace'     => $e->getTraceAsString(),
-            ]);
-
-            return back()
-                ->withInput()
-                ->with('error', 'Error saving sale return. Please contact administrator.');
+            Log::error('[SaleReturn] Store failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return back()->withInput()->with('error', 'Error saving sale return: ' . $e->getMessage());
         }
     }
 
@@ -136,37 +99,31 @@ class SaleReturnController extends Controller
 
         return view('sale_returns.edit', [
             'return'    => $return,
-            'products'  => Product::get(),
+            'products'  => Product::orderBy('name')->get(),
             'customers' => ChartOfAccounts::where('account_type', 'customer')->get(),
             'invoices'  => SaleInvoice::latest()->get(),
         ]);
     }
-    
+
     public function update(Request $request, $id)
     {
-        // Log the incoming request
-        Log::info('[SaleReturn] Update Request', [
-            'sale_return_id' => $id,
-            'request_data'   => $request->except(['_token', '_method']),
-        ]);
-
         $validated = $request->validate([
-            'account_id'           => 'required|exists:chart_of_accounts,id',
-            'return_date'          => 'required|date',
-            'sale_invoice_no'      => 'nullable|string|max:50',
-            'remarks'              => 'nullable|string|max:500',
-            'items'                => 'required|array|min:1',
-            'items.*.product_id'   => 'required|exists:products,id',
-            'items.*.qty'          => 'required|numeric|min:1',
-            'items.*.price'        => 'required|numeric|min:0',
+            'account_id'         => 'required|exists:chart_of_accounts,id',
+            'return_date'        => 'required|date',
+            'sale_invoice_no'    => 'nullable|string|max:50',
+            'remarks'            => 'nullable|string|max:500',
+            'items'              => 'required|array|min:1',
+            'items.*.product_id' => 'required|exists:products,id',
+            'items.*.qty'        => 'required|numeric|min:1',
+            'items.*.price'      => 'required|numeric|min:0',
         ]);
-
-        // Log validated data
-        Log::info('[SaleReturn] Validated Data', $validated);
 
         DB::beginTransaction();
         try {
             $return = SaleReturn::findOrFail($id);
+
+            // Reverse old accounting entry
+            Voucher::where('narration', 'Sale Return #' . $return->invoice_no)->delete();
 
             $return->update([
                 'account_id'      => $validated['account_id'],
@@ -175,10 +132,10 @@ class SaleReturnController extends Controller
                 'remarks'         => $validated['remarks'] ?? null,
             ]);
 
-            // Delete old items and reinsert
+            // Replace line items
             $return->items()->delete();
 
-            foreach ($validated['items'] as $idx => $item) {
+            foreach ($validated['items'] as $item) {
                 SaleReturnItem::create([
                     'sale_return_id' => $return->id,
                     'product_id'     => $item['product_id'],
@@ -187,117 +144,113 @@ class SaleReturnController extends Controller
                 ]);
             }
 
+            // Re-create voucher with updated amounts
+            $this->createVoucher(
+                $validated['account_id'],
+                $validated['return_date'],
+                $validated['items'],
+                $return->invoice_no
+            );
+
             DB::commit();
+            Log::info('[SaleReturn] Updated successfully', ['id' => $return->id]);
 
-            Log::info('[SaleReturn] Update Success', [
-                'sale_return_id' => $return->id,
-                'items_count'    => count($validated['items']),
-            ]);
-
-            return redirect()->route('sale_return.index')
-                ->with('success', 'Sale return updated successfully.');
+            return redirect()->route('sale_return.index')->with('success', 'Sale return updated successfully.');
 
         } catch (\Throwable $e) {
             DB::rollBack();
+            Log::error('[SaleReturn] Update failed', ['error' => $e->getMessage()]);
+            return back()->withInput()->with('error', 'Error updating sale return: ' . $e->getMessage());
+        }
+    }
 
-            Log::error('[SaleReturn] Update Failed', [
-                'sale_return_id' => $id,
-                'error_message'  => $e->getMessage(),
-                'file'           => $e->getFile(),
-                'line'           => $e->getLine(),
-                'trace'          => $e->getTraceAsString(),
-            ]);
+    public function destroy($id)
+    {
+        DB::beginTransaction();
+        try {
+            $return = SaleReturn::findOrFail($id);
 
-            return back()->withInput()
-                ->with('error', 'Error updating sale return.');
+            // Reverse accounting entry before deleting
+            Voucher::where('narration', 'Sale Return #' . $return->invoice_no)->delete();
+
+            $return->items()->delete();
+            $return->delete();
+
+            DB::commit();
+            Log::info('[SaleReturn] Deleted successfully', ['id' => $id]);
+
+            return redirect()->route('sale_return.index')->with('success', 'Sale return deleted.');
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('[SaleReturn] Delete failed', ['error' => $e->getMessage()]);
+            return back()->with('error', 'Error deleting sale return: ' . $e->getMessage());
         }
     }
 
     public function show($id)
     {
-        $return = SaleReturn::with('items.product','account','saleInvoice')->findOrFail($id);
+        $return = SaleReturn::with('items.product', 'account', 'saleInvoice')->findOrFail($id);
         return response()->json($return);
-    }
-
-    public function destroy($id)
-    {
-        try {
-            $return = SaleReturn::findOrFail($id);
-            $return->delete();
-            return redirect()->route('sale_returns.index')->with('success','Sale return deleted.');
-        } catch (\Throwable $e) {
-            Log::error('[SaleReturn] Delete failed', ['error'=>$e->getMessage()]);
-            return back()->with('error','Error deleting sale return.');
-        }
     }
 
     public function print($id)
     {
-        $return = SaleReturn::with(['customer','items.product'])->findOrFail($id);
+        $return = SaleReturn::with(['account', 'items.product'])->findOrFail($id);
 
         $pdf = new \TCPDF();
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
         $pdf->SetCreator('Your App');
         $pdf->SetAuthor('Your Company');
-        $pdf->SetTitle('Sale Return #'.$return->invoice_no);
+        $pdf->SetTitle('Sale Return #' . $return->invoice_no);
         $pdf->SetMargins(10, 10, 10);
         $pdf->AddPage();
         $pdf->setCellPadding(1.5);
 
-        // --- Company Header ---
         $logoPath = public_path('assets/img/bf_logo.jpg');
-
-        // Logo (Top Left)
         if (file_exists($logoPath)) {
             $pdf->Image($logoPath, 12, 8, 40);
         }
 
-        // Purchase INVOICE (Top Right)
         $pdf->SetFont('helvetica', 'B', 14);
-
-        // Page width = 210 (A4) - margins (10+10)
         $pdf->SetXY(120, 12);
         $pdf->Cell(80, 8, 'Sale Return Invoice', 0, 1, 'R');
 
-       
-        // --- Customer + Invoice Info ---
         $pdf->Ln(5);
         $pdf->SetFont('helvetica', '', 10);
 
         $infoHtml = '
         <table cellpadding="3" cellspacing="0" width="40%">
-            <tr>
-                <td>
-                    <table border="1" cellpadding="4" cellspacing="0" style="font-size:10px;">
-                        <tr>
-                            <td width="30%"><b>Vendor</b></td>
-                            <td width="70%">'.($return->customer->name ?? '-').'</td>
-                        </tr>
-                        <tr>
-                            <td width="30%"><b>Invoice No</b></td>
-                            <td width="70%">'.$return->invoice_no.'</td>
-                        </tr>
-                        <tr>
-                            <td width="30%"><b>Date</b></td>
-                            <td width="70%">'.\Carbon\Carbon::parse($return->return_date)->format('d-m-Y').'</td>
-                        </tr>
-                    </table>
-                </td>
-            </tr>
+            <tr><td>
+                <table border="1" cellpadding="4" cellspacing="0" style="font-size:10px;">
+                    <tr>
+                        <td width="30%"><b>Customer</b></td>
+                        <td width="70%">' . ($return->account->name ?? '-') . '</td>
+                    </tr>
+                    <tr>
+                        <td width="30%"><b>Return No</b></td>
+                        <td width="70%">' . $return->invoice_no . '</td>
+                    </tr>
+                    <tr>
+                        <td width="30%"><b>Date</b></td>
+                        <td width="70%">' . Carbon::parse($return->return_date)->format('d-m-Y') . '</td>
+                    </tr>
+                </table>
+            </td></tr>
         </table>';
 
         $pdf->writeHTML($infoHtml, true, false, false, false, '');
 
-        // --- Items Table ---
         $pdf->Ln(5);
-        $html = '<table border="0.3" cellpadding="4" style="text-align:center;font-size:10px;">
+        $html = '
+        <table border="0.3" cellpadding="4" style="text-align:center;font-size:10px;">
             <tr style="background-color:#f5f5f5; font-weight:bold;">
                 <th width="8%">S.No</th>
                 <th width="50%">Product</th>
-                <th width="10%">Qty</th>
-                <th width="12%">Price</th>
-                <th width="15%">Total</th>
+                <th width="12%">Qty</th>
+                <th width="15%">Price</th>
+                <th width="15%">Amount</th>
             </tr>';
 
         $count = 0;
@@ -305,38 +258,37 @@ class SaleReturnController extends Controller
 
         foreach ($return->items as $item) {
             $count++;
-            $lineTotal = $item->qty * $item->price;
+            $lineTotal    = $item->qty * $item->price;
             $totalAmount += $lineTotal;
 
             $html .= '
             <tr>
-                <td align="center">'.$count.'</td>
-                <td>'.($item->product->name ?? '-').'</td>
-                <td align="center">'.number_format($item->qty, 2).'</td>
-                <td align="right">'.number_format($item->price, 2).'</td>
-                <td align="right">'.number_format($lineTotal, 2).'</td>
+                <td align="center">' . $count . '</td>
+                <td>' . ($item->product->name ?? '-') . '</td>
+                <td align="center">' . number_format($item->qty, 2) . '</td>
+                <td align="right">' . number_format($item->price, 2) . '</td>
+                <td align="right">' . number_format($lineTotal, 2) . '</td>
             </tr>';
         }
 
-        // --- Totals ---
         $html .= '
             <tr style="background-color:#f5f5f5;">
                 <td colspan="4" align="right"><b>Total</b></td>
-                <td align="right"><b>'.number_format($totalAmount, 2).'</b></td>
+                <td align="right"><b>' . number_format($totalAmount, 2) . '</b></td>
             </tr>
         </table>';
 
         $pdf->writeHTML($html, true, false, true, false, '');
 
-        // --- Remarks ---
         if (!empty($return->remarks)) {
-            $remarksHtml = '<b>Remarks:</b><br><span style="font-size:12px;">'.nl2br($return->remarks).'</span>';
-            $pdf->writeHTML($remarksHtml, true, false, true, false, '');
+            $pdf->writeHTML(
+                '<b>Remarks:</b><br><span style="font-size:12px;">' . nl2br($return->remarks) . '</span>',
+                true, false, true, false, ''
+            );
         }
 
-        // --- Signatures ---
         $pdf->Ln(20);
-        $yPos = $pdf->GetY();
+        $yPos      = $pdf->GetY();
         $lineWidth = 40;
 
         $pdf->Line(28, $yPos, 28 + $lineWidth, $yPos);
@@ -347,7 +299,48 @@ class SaleReturnController extends Controller
         $pdf->SetXY(130, $yPos + 2);
         $pdf->Cell($lineWidth, 6, 'Authorized By', 0, 0, 'C');
 
-        return $pdf->Output('sale_return_'.$return->id.'.pdf', 'I');
+        return $pdf->Output('sale_return_' . $return->id . '.pdf', 'I');
     }
 
+    /* ---------------------------------------------------------------
+     | Private helper — double-entry for a sale return
+     |
+     | When a customer returns goods:
+     |   Dr: Sales Revenue  (we reverse the revenue — customer no longer owes)
+     |   Cr: Customer account (reduces their receivable / they get credit)
+     |
+     | Stock side is handled by InventoryReportController reading
+     | sale_return_items directly — no separate inventory voucher needed
+     | unless you want COGS reversal too (add below if required).
+     --------------------------------------------------------------- */
+    private function createVoucher(int $customerId, string $date, array $items, string $invoiceNo): void
+    {
+        $totalAmount = collect($items)->sum(fn($i) => $i['qty'] * $i['price']);
+
+        $salesAccount = ChartOfAccounts::where('account_type', 'revenue')
+            ->orWhere('name', 'Sales Revenue')
+            ->first();
+
+        if (!$salesAccount) {
+            Log::warning('[SaleReturn] Voucher skipped — no revenue account found in COA.');
+            return;
+        }
+
+        // Dr: Sales Revenue (reverses the original sale entry)
+        // Cr: Customer     (reduces what they owe, or creates a credit balance)
+        Voucher::create([
+            'date'         => $date,
+            'voucher_type' => 'journal',
+            'ac_dr_sid'    => $salesAccount->id,  // Dr: Sales Revenue
+            'ac_cr_sid'    => $customerId,         // Cr: Customer
+            'amount'       => $totalAmount,
+            'narration'    => 'Sale Return #' . $invoiceNo,
+            'created_by'   => Auth::id(),
+        ]);
+
+        Log::info('[SaleReturn] Voucher created', [
+            'narration' => 'Sale Return #' . $invoiceNo,
+            'amount'    => $totalAmount,
+        ]);
+    }
 }

@@ -11,9 +11,16 @@ class SaleInvoiceItem extends Model
         'product_id',
         'sale_price',
         'quantity',
+        'discount',
     ];
 
     public function saleInvoice()
+    {
+        return $this->belongsTo(SaleInvoice::class, 'sale_invoice_id');
+    }
+
+    // Alias — used by getProductsWithStock() whereHas('invoice')
+    public function invoice()
     {
         return $this->belongsTo(SaleInvoice::class, 'sale_invoice_id');
     }
@@ -25,10 +32,6 @@ class SaleInvoiceItem extends Model
 
     public function customizations()
     {
-        return $this->hasMany(
-            SaleItemCustomization::class,
-            'sale_invoice_items_id'
-        );
+        return $this->hasMany(SaleItemCustomization::class, 'sale_invoice_items_id');
     }
 }
-

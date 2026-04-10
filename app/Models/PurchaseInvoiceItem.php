@@ -13,10 +13,18 @@ class PurchaseInvoiceItem extends Model
         'unit',
         'price',
         'remarks',
-        'sort_order', // Add this
+        'sort_order',
     ];
 
+    // Called as ->invoice in COGS calculation
     public function invoice()
+    {
+        return $this->belongsTo(PurchaseInvoice::class, 'purchase_invoice_id');
+    }
+
+    // Alias so withSum filter can use whereHas('invoice')
+    // (same as above — both names point to same relation)
+    public function purchaseInvoice()
     {
         return $this->belongsTo(PurchaseInvoice::class, 'purchase_invoice_id');
     }
@@ -25,7 +33,7 @@ class PurchaseInvoiceItem extends Model
     {
         return $this->belongsTo(Product::class, 'item_id');
     }
-    
+
     public function measurementUnit()
     {
         return $this->belongsTo(MeasurementUnit::class, 'unit');

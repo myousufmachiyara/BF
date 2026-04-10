@@ -71,4 +71,15 @@ class Product extends Model
         return $this->hasMany(ProductPart::class, 'part_id');
     }
 
+    public function purchaseReturns()
+    {
+        return $this->hasMany(PurchaseReturnItem::class, 'item_id');
+    }
+
+    // Sale return items that reference this product
+    public function saleReturns()
+    {
+        return $this->hasMany(SaleReturnItem::class, 'product_id');
+    }
+
 }

@@ -28,5 +28,11 @@ class SaleInvoice extends Model
     {
         return $this->belongsTo(ChartOfAccounts::class, 'account_id');
     }
+
+    // In SaleInvoice model
+    public function receiptVouchers()
+    {
+        return $this->hasMany(Voucher::class, 'reference')->where('voucher_type', 'receipt');
+    }
 }
 
