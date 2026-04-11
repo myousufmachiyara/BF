@@ -96,69 +96,128 @@ class SaleInvoiceController extends Controller
     }
 
     /* ================= STORE ================= */
-    public function store(Request $request)
-    {
-        $validated = $request->validate([
-            'date'                     => 'required|date',
-            'account_id'               => 'required|exists:chart_of_accounts,id',
-            'type'                     => 'required|in:cash,credit',
-            'discount'                 => 'nullable|numeric|min:0',
-            'remarks'                  => 'nullable|string',
-            'items'                    => 'required|array|min:1',
-            'items.*.product_id'       => 'required|exists:products,id',
-            'items.*.sale_price'       => 'required|numeric|min:0',
-            'items.*.quantity'         => 'required|numeric|min:1',
-            'items.*.customizations'   => 'nullable|array',
-            'items.*.customizations.*' => 'exists:products,id',
-            'payment_account_id'       => 'nullable|exists:chart_of_accounts,id',
-            'amount_received'          => 'nullable|numeric|min:0',
+public function store(Request $request)
+{
+    Log::info('[SaleInvoice][Store] Request received', [
+        'user_id' => Auth::id(),
+        'input'   => $request->except(['_token']),
+    ]);
+
+    $validated = $request->validate([
+        'date'                     => 'required|date',
+        'account_id'               => 'required|exists:chart_of_accounts,id',
+        'type'                     => 'required|in:cash,credit',
+        'discount'                 => 'nullable|numeric|min:0',
+        'remarks'                  => 'nullable|string',
+        'items'                    => 'required|array|min:1',
+        'items.*.product_id'       => 'required|exists:products,id',
+        'items.*.sale_price'       => 'required|numeric|min:0',
+        'items.*.quantity'         => 'required|numeric|min:1',
+        'items.*.customizations'   => 'nullable|array',
+        'items.*.customizations.*' => 'exists:products,id',
+        'payment_account_id'       => 'nullable|exists:chart_of_accounts,id',
+        'amount_received'          => 'nullable|numeric|min:0',
+    ]);
+
+    Log::info('[SaleInvoice][Store] Validation passed', [
+        'items_count' => count($validated['items']),
+        'items'       => $validated['items'],
+    ]);
+
+    DB::beginTransaction();
+    try {
+        // ── Invoice number ──────────────────────────────────────────
+        $lastInvoice = SaleInvoice::withTrashed()->orderBy('id', 'desc')->first();
+        $invoiceNo   = str_pad($lastInvoice ? intval($lastInvoice->invoice_no) + 1 : 1, 6, '0', STR_PAD_LEFT);
+        Log::info('[SaleInvoice][Store] Invoice number generated', ['invoice_no' => $invoiceNo]);
+
+        // ── Create header ───────────────────────────────────────────
+        $invoice = SaleInvoice::create([
+            'invoice_no' => $invoiceNo,
+            'date'       => $validated['date'],
+            'account_id' => $validated['account_id'],
+            'type'       => $validated['type'],
+            'discount'   => $validated['discount'] ?? 0,
+            'remarks'    => $validated['remarks'] ?? null,
+            'created_by' => Auth::id(),
         ]);
+        Log::info('[SaleInvoice][Store] Invoice header created', ['invoice_id' => $invoice->id]);
 
-        DB::beginTransaction();
-        try {
-            $lastInvoice = SaleInvoice::withTrashed()->orderBy('id', 'desc')->first();
-            $invoiceNo   = str_pad($lastInvoice ? intval($lastInvoice->invoice_no) + 1 : 1, 6, '0', STR_PAD_LEFT);
+        // ── Create items ────────────────────────────────────────────
+        $totalBill = 0;
 
-            $invoice = SaleInvoice::create([
-                'invoice_no' => $invoiceNo,
-                'date'       => $validated['date'],
-                'account_id' => $validated['account_id'],
-                'type'       => $validated['type'],
-                'discount'   => $validated['discount'] ?? 0,
-                'remarks'    => $validated['remarks'],
-                'created_by' => Auth::id(),
-            ]);
+        foreach ($validated['items'] as $idx => $item) {
+            Log::info("[SaleInvoice][Store] Processing item #{$idx}", ['item' => $item]);
 
-            $totalBill = 0;
-            foreach ($validated['items'] as $item) {
+            try {
                 $invoiceItem = SaleInvoiceItem::create([
                     'sale_invoice_id' => $invoice->id,
                     'product_id'      => $item['product_id'],
                     'sale_price'      => $item['sale_price'],
                     'quantity'        => $item['quantity'],
-                    'discount'        => 0,
+                    // Remove 'discount' => 0 if that column doesn't exist in your table
                 ]);
+                Log::info("[SaleInvoice][Store] Item #{$idx} created", ['item_id' => $invoiceItem->id]);
+            } catch (\Throwable $itemEx) {
+                Log::error("[SaleInvoice][Store] Failed to create item #{$idx}", [
+                    'item'  => $item,
+                    'error' => $itemEx->getMessage(),
+                    'line'  => $itemEx->getLine(),
+                    'file'  => $itemEx->getFile(),
+                ]);
+                throw $itemEx; // re-throw to trigger rollback
+            }
 
-                $totalBill += $item['sale_price'] * $item['quantity'];
+            $totalBill += $item['sale_price'] * $item['quantity'];
 
-                foreach ($item['customizations'] ?? [] as $customItemId) {
+            // ── Customizations ──────────────────────────────────────
+            $customizations = $item['customizations'] ?? [];
+            Log::info("[SaleInvoice][Store] Item #{$idx} customizations", ['customizations' => $customizations]);
+
+            foreach ($customizations as $cidx => $customItemId) {
+                try {
                     SaleItemCustomization::create([
                         'sale_invoice_id'       => $invoice->id,
                         'sale_invoice_items_id' => $invoiceItem->id,
                         'item_id'               => $customItemId,
                     ]);
+                    Log::info("[SaleInvoice][Store] Customization #{$cidx} created for item #{$idx}", [
+                        'custom_item_id' => $customItemId,
+                    ]);
+                } catch (\Throwable $custEx) {
+                    Log::error("[SaleInvoice][Store] Failed to create customization #{$cidx} for item #{$idx}", [
+                        'custom_item_id' => $customItemId,
+                        'error'          => $custEx->getMessage(),
+                        'line'           => $custEx->getLine(),
+                        'file'           => $custEx->getFile(),
+                    ]);
+                    throw $custEx;
                 }
             }
+        }
 
-            $netTotal = $totalBill - ($validated['discount'] ?? 0);
+        $netTotal = $totalBill - ($validated['discount'] ?? 0);
+        Log::info('[SaleInvoice][Store] Items loop complete', [
+            'total_bill' => $totalBill,
+            'net_total'  => $netTotal,
+        ]);
 
-            // Dr: Customer | Cr: Sales Revenue
-            $salesAccount = ChartOfAccounts::where('name', 'Sales Revenue')
-                ->orWhere('account_type', 'revenue')
-                ->first();
+        // ── Sales Revenue voucher ───────────────────────────────────
+        $salesAccount = ChartOfAccounts::where('name', 'Sales Revenue')
+            ->orWhere('account_type', 'revenue')
+            ->first();
 
-            if (!$salesAccount) throw new \Exception('Sales Revenue account not found in COA.');
+        Log::info('[SaleInvoice][Store] Sales account lookup', [
+            'found'      => $salesAccount ? true : false,
+            'account_id' => $salesAccount?->id,
+            'name'       => $salesAccount?->name,
+        ]);
 
+        if (!$salesAccount) {
+            throw new \Exception('Sales Revenue account not found in COA. Check account_type = revenue or name = "Sales Revenue".');
+        }
+
+        try {
             Voucher::create([
                 'voucher_type' => 'journal',
                 'date'         => $validated['date'],
@@ -169,9 +228,23 @@ class SaleInvoiceController extends Controller
                 'remarks'      => "Sales Invoice #{$invoiceNo}",
                 'reference'    => $invoice->id,
             ]);
+            Log::info('[SaleInvoice][Store] Sales revenue voucher created');
+        } catch (\Throwable $vEx) {
+            Log::error('[SaleInvoice][Store] Failed to create sales revenue voucher', [
+                'error' => $vEx->getMessage(),
+                'line'  => $vEx->getLine(),
+                'file'  => $vEx->getFile(),
+            ]);
+            throw $vEx;
+        }
 
-            // Dr: Cash/Bank | Cr: Customer  (if payment received)
-            if ($request->filled('payment_account_id') && $request->amount_received > 0) {
+        // ── Payment receipt voucher ─────────────────────────────────
+        if ($request->filled('payment_account_id') && $request->amount_received > 0) {
+            Log::info('[SaleInvoice][Store] Creating payment receipt voucher', [
+                'payment_account_id' => $validated['payment_account_id'],
+                'amount_received'    => $validated['amount_received'],
+            ]);
+            try {
                 Voucher::create([
                     'voucher_type' => 'receipt',
                     'date'         => $validated['date'],
@@ -182,20 +255,42 @@ class SaleInvoiceController extends Controller
                     'remarks'      => "Payment received for Invoice #{$invoiceNo}",
                     'reference'    => $invoice->id,
                 ]);
+                Log::info('[SaleInvoice][Store] Payment receipt voucher created');
+            } catch (\Throwable $pvEx) {
+                Log::error('[SaleInvoice][Store] Failed to create payment voucher', [
+                    'error' => $pvEx->getMessage(),
+                    'line'  => $pvEx->getLine(),
+                    'file'  => $pvEx->getFile(),
+                ]);
+                throw $pvEx;
             }
-
-            // Dr: COGS | Cr: Stock in Hand
-            $this->recordCogsVoucher($validated['items'], $validated['date'], $invoiceNo, $invoice->id);
-
-            DB::commit();
-            return redirect()->route('sale_invoices.index')->with('success', 'Sale Invoice saved successfully.');
-
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            Log::error('[SaleInvoice] Store failed: ' . $e->getMessage());
-            return back()->withInput()->with('error', 'Error saving invoice: ' . $e->getMessage());
+        } else {
+            Log::info('[SaleInvoice][Store] No payment receipt — skipped', [
+                'payment_account_id_filled' => $request->filled('payment_account_id'),
+                'amount_received'           => $request->amount_received,
+            ]);
         }
+
+        // ── COGS voucher ────────────────────────────────────────────
+        Log::info('[SaleInvoice][Store] Recording COGS voucher');
+        $this->recordCogsVoucher($validated['items'], $validated['date'], $invoiceNo, $invoice->id);
+
+        DB::commit();
+        Log::info('[SaleInvoice][Store] Transaction committed successfully', ['invoice_id' => $invoice->id]);
+
+        return redirect()->route('sale_invoices.index')->with('success', 'Sale Invoice saved successfully.');
+
+    } catch (\Throwable $e) {
+        DB::rollBack();
+        Log::error('[SaleInvoice][Store] TRANSACTION ROLLED BACK', [
+            'error'   => $e->getMessage(),
+            'line'    => $e->getLine(),
+            'file'    => $e->getFile(),
+            'trace'   => $e->getTraceAsString(),
+        ]);
+        return back()->withInput()->with('error', 'Error saving invoice: ' . $e->getMessage());
     }
+}
 
     /* ================= EDIT ================= */
     public function edit($id)
