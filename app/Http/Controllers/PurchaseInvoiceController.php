@@ -8,7 +8,7 @@ use App\Models\PurchaseInvoiceAttachment;
 use App\Models\Product;
 use App\Models\Voucher;
 use App\Models\MeasurementUnit;
-use App\Models\ChartOfAccounts; // assuming vendors are COA entries
+use App\Models\ChartOfAccounts;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -22,21 +22,17 @@ class PurchaseInvoiceController extends Controller
     public function index(Request $request)
     {
         $user = auth()->user();
-        
-        // 1. Initialize query with relationships
+
         $query = PurchaseInvoice::with(['vendor', 'attachments']);
 
-        // 2. Filter for Soft-Deleted items if requested
         if ($request->has('view_deleted')) {
             $query->onlyTrashed();
         }
 
-        // 3. Privacy Logic: If NOT superadmin, restrict to own records
         if (!$user->hasRole('superadmin')) {
             $query->where('created_by', $user->id);
         }
 
-        // 4. Execute with latest first
         $invoices = $query->latest()->get();
 
         return view('purchases.index', compact('invoices'));
@@ -45,14 +41,13 @@ class PurchaseInvoiceController extends Controller
     public function create()
     {
         $products = Product::get();
-        
-        // ✅ Filter vendors based on user role
+
         $vendorsQuery = ChartOfAccounts::where('account_type', 'vendor');
         if (!auth()->user()->hasRole('superadmin')) {
             $vendorsQuery->where('visibility', 'public');
         }
         $vendors = $vendorsQuery->orderBy('name')->get();
-        
+
         $units = MeasurementUnit::all();
 
         return view('purchases.create', compact('products', 'vendors', 'units'));
@@ -61,17 +56,17 @@ class PurchaseInvoiceController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'invoice_date' => 'required|date',
-            'vendor_id' => 'required|exists:chart_of_accounts,id',
-            'bill_no' => 'nullable|string|max:100',
-            'ref_no' => 'nullable|string|max:100',
-            'remarks' => 'nullable|string',
-            'attachments.*' => 'nullable|file|mimes:jpg,jpeg,png,pdf,zip|max:2048',
-            'items' => 'required|array|min:1', // Ensure items array exists
-            'items.*.item_id' => 'required|exists:products,id',
-            'items.*.quantity' => 'required|numeric|min:1',
-            'items.*.unit' => 'required|exists:measurement_units,id',
-            'items.*.price' => 'required|numeric|min:0',
+            'invoice_date'      => 'required|date',
+            'vendor_id'         => 'required|exists:chart_of_accounts,id',
+            'bill_no'           => 'nullable|string|max:100',
+            'ref_no'            => 'nullable|string|max:100',
+            'remarks'           => 'nullable|string',
+            'attachments.*'     => 'nullable|file|mimes:jpg,jpeg,png,pdf,zip|max:2048',
+            'items'             => 'required|array|min:1',
+            'items.*.item_id'   => 'required|exists:products,id',
+            'items.*.quantity'  => 'required|numeric|min:1',
+            'items.*.unit'      => 'required|exists:measurement_units,id',
+            'items.*.price'     => 'required|numeric|min:0',
         ]);
 
         DB::beginTransaction();
@@ -79,8 +74,8 @@ class PurchaseInvoiceController extends Controller
         try {
             // 1. Generate Invoice Number
             $lastInvoice = PurchaseInvoice::withTrashed()->orderBy('id', 'desc')->first();
-            $nextNumber = $lastInvoice ? intval($lastInvoice->invoice_no) + 1 : 1;
-            $invoiceNo = str_pad($nextNumber, 6, '0', STR_PAD_LEFT);
+            $nextNumber  = $lastInvoice ? intval($lastInvoice->invoice_no) + 1 : 1;
+            $invoiceNo   = str_pad($nextNumber, 6, '0', STR_PAD_LEFT);
 
             // 2. Create Invoice Header
             $invoice = PurchaseInvoice::create([
@@ -93,43 +88,183 @@ class PurchaseInvoiceController extends Controller
                 'created_by'   => auth()->id(),
             ]);
 
-            $totalAmount = 0; 
-            $products = Product::pluck('name', 'id');
+            $totalAmount = 0;
+            $products    = Product::pluck('name', 'id');
+            $position    = 0;
 
-            // 3. Create Items & Calculate Total
-
-            $position = 0; // Initialize manual counter
-
-            foreach ($request->items as $index => $itemData) {                
-                $lineTotal = ($itemData['quantity'] ?? 0) * ($itemData['price'] ?? 0);
-                $totalAmount += $lineTotal; // FIXED: Adding to total
+            // 3. Create Items
+            foreach ($request->items as $itemData) {
+                $lineTotal    = ($itemData['quantity'] ?? 0) * ($itemData['price'] ?? 0);
+                $totalAmount += $lineTotal;
 
                 $invoice->items()->create([
-                    'item_id'   => $itemData['item_id'],
-                    'item_name' => $products[$itemData['item_id']] ?? null,
-                    'quantity'  => $itemData['quantity'] ?? 0,
-                    'unit'      => $itemData['unit'] ?? '',
-                    'price'     => $itemData['price'] ?? 0,
-                    'remarks'   => $itemData['item_remarks'] ?? null,
-                    'sort_order' => $position, // Use clean counter instead of $index                
+                    'item_id'    => $itemData['item_id'],
+                    'item_name'  => $products[$itemData['item_id']] ?? null,
+                    'quantity'   => $itemData['quantity'] ?? 0,
+                    'unit'       => $itemData['unit'] ?? '',
+                    'price'      => $itemData['price'] ?? 0,
+                    'remarks'    => $itemData['item_remarks'] ?? null,
+                    'sort_order' => $position,
                 ]);
                 $position++;
             }
-            // 4. Find Debit Account (Inventory/Stock)
-            $inventoryAccount = ChartOfAccounts::where('name', 'Stock in Hand')->first();
 
+            // 4. Find Inventory Account
+            $inventoryAccount = ChartOfAccounts::where('name', 'Stock in Hand')->first();
             if (!$inventoryAccount) {
                 throw new \Exception("Default Inventory/Stock account not found. Please check Chart of Accounts.");
             }
 
-            // 5. Create Voucher (The Accounting Entry)
+            // 5. Create Voucher — ALWAYS use updateOrCreate to prevent duplicates
+            Voucher::updateOrCreate(
+                [
+                    'reference'    => (string)$invoice->id,
+                    'voucher_type' => 'journal',
+                ],
+                [
+                    'date'      => $request->invoice_date,
+                    'ac_dr_sid' => $inventoryAccount->id,
+                    'ac_cr_sid' => $request->vendor_id,
+                    'amount'    => $totalAmount,
+                    'remarks'   => "Purchase Invoice #{$invoice->invoice_no}",
+                ]
+            );
+
+            // 6. Handle Attachments
+            if ($request->hasFile('attachments')) {
+                foreach ($request->file('attachments') as $file) {
+                    $path = $file->store('purchase_invoices', 'public');
+                    $invoice->attachments()->create([
+                        'file_path'     => $path,
+                        'original_name' => $file->getClientOriginalName(),
+                        'file_type'     => $file->getClientMimeType(),
+                    ]);
+                }
+            }
+
+            DB::commit();
+            return redirect()->route('purchase_invoices.index')
+                ->with('success', 'Purchase Invoice created successfully.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Purchase Invoice Store Error: ' . $e->getMessage());
+            return back()->withInput()->withErrors(['error' => $e->getMessage()]);
+        }
+    }
+
+    public function edit($id)
+    {
+        $invoice = PurchaseInvoice::with(['items' => function ($q) {
+            $q->orderBy('sort_order', 'asc');
+        }, 'attachments'])->findOrFail($id);
+
+        $user = auth()->user();
+
+        if (!$user->hasRole('superadmin') && $invoice->created_by != $user->id) {
+            abort(403, 'Unauthorized access');
+        }
+
+        $vendorsQuery = ChartOfAccounts::where('account_type', 'vendor');
+        if (!$user->hasRole('superadmin')) {
+            $vendorsQuery->where('visibility', 'public');
+        }
+        $vendors  = $vendorsQuery->orderBy('name')->get();
+        $products = Product::select('id', 'name', 'measurement_unit')->get();
+        $units    = MeasurementUnit::all();
+
+        return view('purchases.edit', compact('invoice', 'vendors', 'products', 'units'));
+    }
+
+    public function update(Request $request, $id)
+    {
+        $request->validate([
+            'invoice_date'      => 'required|date',
+            'vendor_id'         => 'required|exists:chart_of_accounts,id',
+            'bill_no'           => 'nullable|string|max:100',
+            'ref_no'            => 'nullable|string|max:100',
+            'remarks'           => 'nullable|string',
+            'attachments.*'     => 'nullable|file|mimes:jpg,jpeg,png,pdf,zip|max:2048',
+            'items'             => 'required|array|min:1',
+            'items.*.item_id'   => 'required|exists:products,id',
+            'items.*.quantity'  => 'required|numeric|min:1',
+            'items.*.unit'      => 'required|exists:measurement_units,id',
+            'items.*.price'     => 'required|numeric|min:0',
+            'convance_charges'  => 'nullable|numeric|min:0',
+            'labour_charges'    => 'nullable|numeric|min:0',
+            'bill_discount'     => 'nullable|numeric|min:0',
+        ]);
+
+        DB::beginTransaction();
+
+        try {
+            $invoice = PurchaseInvoice::findOrFail($id);
+
+            // 1. Update Invoice Header
+            $invoice->update([
+                'vendor_id'    => $request->vendor_id,
+                'invoice_date' => $request->invoice_date,
+                'bill_no'      => $request->bill_no,
+                'ref_no'       => $request->ref_no,
+                'remarks'      => $request->remarks,
+            ]);
+
+            // 2. Refresh Items
+            $invoice->items()->delete();
+
+            $totalItemsAmount = 0;
+            $products         = Product::pluck('name', 'id');
+            $position         = 0;
+
+            foreach ($request->items as $itemData) {
+                if (empty($itemData['item_id'])) continue;
+
+                $lineTotal         = ($itemData['quantity'] ?? 0) * ($itemData['price'] ?? 0);
+                $totalItemsAmount += $lineTotal;
+
+                $invoice->items()->create([
+                    'item_id'      => $itemData['item_id'],
+                    'variation_id' => $itemData['variation_id'] ?? null,
+                    'item_name'    => $products[$itemData['item_id']] ?? null,
+                    'quantity'     => $itemData['quantity'] ?? 0,
+                    'unit'         => $itemData['unit'] ?? '',
+                    'price'        => $itemData['price'] ?? 0,
+                    'remarks'      => $itemData['item_remarks'] ?? null,
+                    'sort_order'   => $position,
+                ]);
+                $position++;
+            }
+
+            // 3. Calculate Final Net Amount
+            $convance           = (float)($request->convance_charges ?? 0);
+            $labour             = (float)($request->labour_charges ?? 0);
+            $discount           = (float)($request->bill_discount ?? 0);
+            $finalVoucherAmount = ($totalItemsAmount + $convance + $labour) - $discount;
+
+            // 4. Find Inventory Account
+            $inventoryAccount = ChartOfAccounts::where('name', 'Stock in Hand')->first();
+            if (!$inventoryAccount) {
+                throw new \Exception("Default Inventory/Stock account not found. Please check Chart of Accounts.");
+            }
+
+            // ─────────────────────────────────────────────────────────────────
+            // 5. FIX: Delete ALL existing vouchers for this invoice first,
+            //    then create exactly one fresh voucher.
+            //    This handles edge cases where duplicates already exist AND
+            //    prevents any race condition with updateOrCreate on soft-delete.
+            // ─────────────────────────────────────────────────────────────────
+            Voucher::where('reference', (string)$invoice->id)
+                ->where('voucher_type', 'journal')
+                ->delete(); // Hard-delete old ones (they will be replaced)
+
             Voucher::create([
-                'date'         => $request->invoice_date,
+                'reference'    => (string)$invoice->id,
                 'voucher_type' => 'journal',
-                'ac_dr_sid'    => $inventoryAccount->id, // Debit: Stock
-                'ac_cr_sid'    => $request->vendor_id,    // Credit: Vendor
-                'amount'       => $totalAmount,           // FIXED: Now has the full invoice value
-                'reference'    => (string)$invoice->id,   // Cast to string to ensure update lookup works
+                'date'         => $request->invoice_date,
+                'ac_dr_sid'    => $inventoryAccount->id,
+                'ac_cr_sid'    => $request->vendor_id,
+                'amount'       => $finalVoucherAmount,
+                'remarks'      => "Purchase Invoice #{$invoice->invoice_no}",
             ]);
 
             // 6. Handle Attachments
@@ -145,144 +280,8 @@ class PurchaseInvoiceController extends Controller
             }
 
             DB::commit();
-            return redirect()->route('purchase_invoices.index')->with('success', 'Purchase Invoice created successfully.');
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Purchase Invoice Store Error: ' . $e->getMessage());
-            return back()->withInput()->withErrors(['error' => $e->getMessage()]);
-        }
-    }
-
-    public function edit($id)
-    {
-        $invoice = PurchaseInvoice::with(['items' => function($q) {
-            $q->orderBy('sort_order', 'asc');
-        }, 'attachments'])->findOrFail($id);        
-
-        $user = auth()->user();
-
-        // Only admin or creator can edit
-        if (!$user->hasRole('superadmin') && $invoice->created_by != $user->id) {
-            abort(403, 'Unauthorized access');
-        }
-
-        // ✅ Filter vendors based on user role
-        $vendorsQuery = ChartOfAccounts::where('account_type', 'vendor');
-        if (!$user->hasRole('superadmin')) {
-            $vendorsQuery->where('visibility', 'public');
-        }
-        $vendors = $vendorsQuery->orderBy('name')->get();
-        $products = Product::select('id', 'name', 'measurement_unit')->get();
-        $units = MeasurementUnit::all();
-
-        return view('purchases.edit', compact('invoice', 'vendors', 'products', 'units'));
-    }
-
-    public function update(Request $request, $id)
-    {
-        $request->validate([
-            'invoice_date' => 'required|date',
-            'vendor_id' => 'required|exists:chart_of_accounts,id',
-            'bill_no' => 'nullable|string|max:100',
-            'ref_no' => 'nullable|string|max:100',
-            'remarks' => 'nullable|string',
-            'attachments.*' => 'nullable|file|mimes:jpg,jpeg,png,pdf,zip|max:2048',
-            'items' => 'required|array|min:1',
-            'items.*.item_id' => 'required|exists:products,id',
-            'items.*.quantity' => 'required|numeric|min:1',
-            'items.*.unit' => 'required|exists:measurement_units,id',
-            'items.*.price' => 'required|numeric|min:0',
-            'convance_charges' => 'nullable|numeric|min:0',
-            'labour_charges'   => 'nullable|numeric|min:0',
-            'bill_discount'    => 'nullable|numeric|min:0',
-        ]);
-
-        DB::beginTransaction();
-
-        try {
-            $invoice = PurchaseInvoice::findOrFail($id);
-
-            // 1. Update Invoice Main Details
-            $invoice->update([
-                'vendor_id'    => $request->vendor_id,
-                'invoice_date' => $request->invoice_date,
-                'bill_no'      => $request->bill_no,
-                'ref_no'       => $request->ref_no,
-                'remarks'      => $request->remarks,
-            ]);
-
-            // 2. Refresh Items
-            $invoice->items()->delete();
-
-            $totalItemsAmount = 0;
-            $products = Product::pluck('name', 'id');
-
-            // USE A MANUAL COUNTER instead of the $index from the request
-            $position = 0; 
-
-            foreach ($request->items as $itemData) { 
-                if (empty($itemData['item_id'])) continue;
-
-                $lineTotal = ($itemData['quantity'] ?? 0) * ($itemData['price'] ?? 0);
-                $totalItemsAmount += $lineTotal;
-
-                $invoice->items()->create([
-                    'item_id'      => $itemData['item_id'],
-                    'variation_id' => $itemData['variation_id'] ?? null,
-                    'item_name'    => $products[$itemData['item_id']] ?? null,
-                    'quantity'     => $itemData['quantity'] ?? 0,
-                    'unit'         => $itemData['unit'] ?? '',
-                    'price'        => $itemData['price'] ?? 0,
-                    'remarks'      => $itemData['item_remarks'] ?? null,
-                    'sort_order'   => $position
-                ]);
-
-                $position++; // Increment for the next item
-            }
-
-            // 3. Calculate Final Net Amount (Items + Charges - Discount)
-            $convance = (float)($request->convance_charges ?? 0);
-            $labour   = (float)($request->labour_charges ?? 0);
-            $discount = (float)($request->bill_discount ?? 0);
-            $finalVoucherAmount = ($totalItemsAmount + $convance + $labour) - $discount;
-
-            // 3. Find the Inventory Account (Stock in Hand)
-            $inventoryAccount = ChartOfAccounts::where('name', 'Stock in Hand')->first();
-
-            // 4. Update or Create the General Ledger (Voucher)
-            // First, try to find the existing voucher linked to this invoice
-            $voucher = Voucher::where('reference', (string)$invoice->id)->where('voucher_type', 'journal')->first();
-
-            if (!$voucher) {
-                // If no voucher exists, create a new instance
-                $voucher = new Voucher();
-                $voucher->reference = (string)$invoice->id;
-                $voucher->voucher_type = 'journal';
-            }
-
-            // Update the fields (this applies to both existing and new vouchers)
-            $voucher->date      = $request->invoice_date;
-            $voucher->ac_dr_sid = $inventoryAccount->id;
-            $voucher->ac_cr_sid = $request->vendor_id;
-            $voucher->amount    = $finalVoucherAmount;
-            $voucher->remarks   = "Updated Purchase Invoice #{$invoice->invoice_no}";
-            $voucher->save();
-
-            // 5. Attachments
-            if ($request->hasFile('attachments')) {
-                foreach ($request->file('attachments') as $file) {
-                    $path = $file->store('purchase_invoices', 'public');
-                    $invoice->attachments()->create([
-                        'file_path'     => $path,
-                        'original_name' => $file->getClientOriginalName(),
-                        'file_type'     => $file->getClientMimeType(),
-                    ]);
-                }
-            }
-
-            DB::commit();
-            return redirect()->route('purchase_invoices.index')->with('success', 'Purchase Invoice updated successfully.');
+            return redirect()->route('purchase_invoices.index')
+                ->with('success', 'Purchase Invoice updated successfully.');
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -298,16 +297,16 @@ class PurchaseInvoiceController extends Controller
         try {
             $invoice = PurchaseInvoice::findOrFail($id);
 
-            // 1. Soft Delete the Voucher 
-            // This removes the transaction from all accounting reports
-            Voucher::where('reference', $invoice->id)->where('voucher_type', 'journal')->delete();
+            // ✅ FIX: Cast to string — must match how reference was stored
+            Voucher::where('reference', (string)$invoice->id)
+                ->where('voucher_type', 'journal')
+                ->delete();
 
-            // 2. Soft Delete the Invoice
             $invoice->delete();
 
             DB::commit();
-
-            return redirect()->route('purchase_invoices.index')->with('success', 'Purchase Invoice and Ledger entry soft-deleted.');
+            return redirect()->route('purchase_invoices.index')
+                ->with('success', 'Purchase Invoice and Ledger entry deleted.');
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -318,15 +317,25 @@ class PurchaseInvoiceController extends Controller
 
     public function restore($id)
     {
-        $invoice = PurchaseInvoice::onlyTrashed()->findOrFail($id);
-        
         DB::beginTransaction();
-        
-        $invoice->restore();
-        Voucher::onlyTrashed()->where('reference', $id)->restore();
-        
-        DB::commit();
-        return redirect()->back()->with('success', 'Invoice and Ledger restored.');
+
+        try {
+            $invoice = PurchaseInvoice::onlyTrashed()->findOrFail($id);
+            $invoice->restore();
+
+            // ✅ FIX: Cast to string — must match stored reference
+            Voucher::onlyTrashed()
+                ->where('reference', (string)$id)
+                ->restore();
+
+            DB::commit();
+            return redirect()->back()->with('success', 'Invoice and Ledger restored.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error("Failed to restore invoice $id: " . $e->getMessage());
+            return back()->withErrors(['error' => 'Restore failed.']);
+        }
     }
 
     public function getInvoicesByItem($itemId)
@@ -340,7 +349,7 @@ class PurchaseInvoiceController extends Controller
         return response()->json(
             $invoices->map(function ($inv) {
                 return [
-                    'id' => $inv->id,
+                    'id'     => $inv->id,
                     'vendor' => $inv->vendor->name ?? '',
                 ];
             })
@@ -370,7 +379,7 @@ class PurchaseInvoiceController extends Controller
 
     public function print($id)
     {
-        $invoice = PurchaseInvoice::with(['vendor', 'items' => function($q) {
+        $invoice = PurchaseInvoice::with(['vendor', 'items' => function ($q) {
             $q->orderBy('sort_order', 'asc');
         }])->findOrFail($id);
 
@@ -388,23 +397,15 @@ class PurchaseInvoiceController extends Controller
         $pdf->AddPage();
         $pdf->SetFont('helvetica', '', 10);
 
-        // --- Company Header ---
         $logoPath = public_path('assets/img/bf_logo.jpg');
-
-        // Logo (Top Left)
         if (file_exists($logoPath)) {
             $pdf->Image($logoPath, 12, 8, 40);
         }
 
-        // Purchase INVOICE (Top Right)
         $pdf->SetFont('helvetica', 'B', 14);
-
-        // Page width = 210 (A4) - margins (10+10)
         $pdf->SetXY(120, 12);
         $pdf->Cell(80, 8, 'Purchase Invoice', 0, 1, 'R');
 
-       
-        // --- Customer + Invoice Info ---
         $pdf->Ln(5);
         $pdf->SetFont('helvetica', '', 10);
 
@@ -415,15 +416,15 @@ class PurchaseInvoiceController extends Controller
                     <table border="1" cellpadding="4" cellspacing="0" style="font-size:10px;">
                         <tr>
                             <td width="30%"><b>Vendor</b></td>
-                            <td width="70%">'.($invoice->vendor->name ?? '-').'</td>
+                            <td width="70%">' . ($invoice->vendor->name ?? '-') . '</td>
                         </tr>
                         <tr>
                             <td width="30%"><b>Invoice No</b></td>
-                            <td width="70%">'.$invoice->invoice_no.'</td>
+                            <td width="70%">' . $invoice->invoice_no . '</td>
                         </tr>
                         <tr>
                             <td width="30%"><b>Date</b></td>
-                            <td width="70%">'.\Carbon\Carbon::parse($invoice->invoice_date)->format('d-m-Y').'</td>
+                            <td width="70%">' . \Carbon\Carbon::parse($invoice->invoice_date)->format('d-m-Y') . '</td>
                         </tr>
                     </table>
                 </td>
@@ -432,8 +433,7 @@ class PurchaseInvoiceController extends Controller
 
         $pdf->writeHTML($infoHtml, true, false, false, false, '');
 
-        // --- Items Table ---
-        $html = '
+        $html        = '
         <table border="1" cellpadding="4" style="text-align:center;font-size:10px;">
             <tr style="font-weight:bold; background-color:#f5f5f5;">
                 <th width="8%">#</th>
@@ -442,30 +442,34 @@ class PurchaseInvoiceController extends Controller
                 <th width="15%">Price</th>
                 <th width="20%">Total</th>
             </tr>';
-        $count = 0; $totalQty=0; $totalAmount=0;
+        $count       = 0;
+        $totalQty    = 0;
+        $totalAmount = 0;
+
         foreach ($invoice->items as $item) {
             $count++;
-            $html .= '
+            $html       .= '
             <tr>
-                <td>'.$count.'</td>
-                <td>'.$item->product->name.'</td>
-                <td>'.$item->quantity.'</td>
-                <td>'.$item->price.'</td>
-                <td>'.($item->price*$item->quantity).'</td>
+                <td>' . $count . '</td>
+                <td>' . $item->product->name . '</td>
+                <td>' . $item->quantity . '</td>
+                <td>' . $item->price . '</td>
+                <td>' . ($item->price * $item->quantity) . '</td>
             </tr>';
-            $totalQty += $item->quantity;
-            $totalAmount += ($item->price*$item->quantity);
+            $totalQty    += $item->quantity;
+            $totalAmount += ($item->price * $item->quantity);
         }
+
         $html .= '
         <tr>
             <td colspan="2" align="right"><b>Total</b></td>
-            <td><b>'.number_format($totalQty,3).'</b></td>
-            <td colspan="2"><b>'.number_format($totalAmount,2).'</b></td>
+            <td><b>' . number_format($totalQty, 3) . '</b></td>
+            <td colspan="2"><b>' . number_format($totalAmount, 2) . '</b></td>
         </tr>
         </table>';
-        $pdf->writeHTML($html, true, false, false, false, '');       
 
-        // Footer Signature Lines
+        $pdf->writeHTML($html, true, false, false, false, '');
+
         $pdf->SetFont('helvetica', 'B', 12);
         $pdf->Ln(20);
         $lineWidth = 60;
@@ -480,35 +484,34 @@ class PurchaseInvoiceController extends Controller
 
         $pdf->SetXY(125, $yPosition);
         $pdf->Cell($lineWidth, 10, 'Received By', 0, 0, 'C');
- 
+
         return $pdf->Output('purchase_invoice_' . $invoice->id . '.pdf', 'I');
     }
 
     public function getProductInvoices($productId)
     {
         try {
-            // Fetch invoices for this vendor that include this product
-            $invoices = PurchaseInvoice::whereHas('items', function($q) use ($productId) {
-                    $q->where('item_id', $productId);
-                })
-                ->with(['items' => function($q) use ($productId) {
-                    $q->where('item_id', $productId);
-                }])
-                ->get();
+            $invoices = PurchaseInvoice::whereHas('items', function ($q) use ($productId) {
+                $q->where('item_id', $productId);
+            })
+            ->with(['items' => function ($q) use ($productId) {
+                $q->where('item_id', $productId);
+            }])
+            ->get();
 
-            $data = $invoices->map(function($inv) {
-                $item = $inv->items->first(); // get the first matching item
+            $data = $invoices->map(function ($inv) {
+                $item = $inv->items->first();
                 return [
-                    'id' => $inv->id,
-                    'number' => $inv->invoice_number,
-                    'rate' => $item ? $item->price : 0, // safe fallback
+                    'id'     => $inv->id,
+                    'number' => $inv->invoice_no, // ✅ FIX: was invoice_number (wrong column name)
+                    'rate'   => $item ? $item->price : 0,
                 ];
             });
 
             return response()->json($data);
 
         } catch (\Exception $e) {
-            Log::error('Invoice fetch failed: '.$e->getMessage());
+            Log::error('Invoice fetch failed: ' . $e->getMessage());
             return response()->json(['error' => 'Failed to load invoices'], 500);
         }
     }
