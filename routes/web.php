@@ -48,7 +48,9 @@ Route::middleware(['auth'])->group(function () {
     Route::patch('purchase_invoices/{id}/restore', [PurchaseInvoiceController::class, 'restore'])->name('purchase_invoices.restore');
     
     //Bilty Helper
-    Route::get('/get-purchase-items/{id}', [App\Http\Controllers\PurchaseBiltyController::class, 'getInvoiceItems']);
+    Route::get('/get-purchase-items/{id}', [PurchaseBiltyController::class, 'getInvoiceItems']);
+
+    Route::post('sale-invoices/bulk-regenerate-vouchers', [SaleInvoiceController::class, 'bulkRegenerateVouchers'])->name('sale_invoices.bulk_regenerate_vouchers');
 
     // Common Modules
     $modules = [

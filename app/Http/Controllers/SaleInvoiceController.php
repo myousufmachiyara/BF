@@ -663,4 +663,108 @@ public function store(Request $request)
             'reference'    => $invoiceId,
         ]);
     }
+
+    /* ================= BULK REGENERATE VOUCHERS ================= */
+    public function bulkRegenerateVouchers(Request $request)
+    {
+        $request->validate([
+            'invoice_ids'   => 'required|array|min:1',
+            'invoice_ids.*' => 'exists:sale_invoices,id',
+        ]);
+
+        $salesAccount     = ChartOfAccounts::where('account_type', 'revenue')->first();
+        $inventoryAccount = ChartOfAccounts::where('name', 'Stock in Hand')->first();
+        $cogsAccount      = ChartOfAccounts::where('account_type', 'cogs')->first();
+
+        if (!$salesAccount) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Sales Revenue account not found in Chart of Accounts.',
+            ], 422);
+        }
+
+        $invoices = SaleInvoice::with('items.customizations')
+            ->whereIn('id', $request->invoice_ids)
+            ->get();
+
+        $succeeded = 0;
+        $failed    = [];
+
+        foreach ($invoices as $invoice) {
+            DB::beginTransaction();
+            try {
+                // ── 1. Wipe existing journal vouchers only ──────────────────
+                Voucher::where('reference', $invoice->id)
+                    ->where('voucher_type', 'journal')
+                    ->delete();
+
+                // ── 2. Recalculate net total ────────────────────────────────
+                $totalBill = $invoice->items->sum(fn($item) =>
+                    $item->sale_price * $item->quantity
+                );
+                $netTotal = max(0, $totalBill - ($invoice->discount ?? 0));
+
+                // ── 3. Sales Revenue voucher ────────────────────────────────
+                Voucher::create([
+                    'voucher_type' => 'journal',
+                    'date'         => $invoice->date,
+                    'ac_dr_sid'    => $invoice->account_id,
+                    'ac_cr_sid'    => $salesAccount->id,
+                    'amount'       => $netTotal,
+                    'narration'    => "Sales Invoice #{$invoice->invoice_no}",
+                    'remarks'      => "Sales Invoice #{$invoice->invoice_no}",
+                    'reference'    => $invoice->id,
+                ]);
+
+                // ── 4. COGS voucher ─────────────────────────────────────────
+                if ($inventoryAccount && $cogsAccount) {
+                    $totalCost = 0;
+                    foreach ($invoice->items as $item) {
+                        $unitCost = $this->calcLandedCost($item->product_id);
+                        foreach ($item->customizations as $customization) {
+                            $unitCost += $this->calcLandedCost($customization->item_id);
+                        }
+                        $totalCost += $unitCost * $item->quantity;
+                    }
+
+                    if ($totalCost > 0) {
+                        Voucher::create([
+                            'voucher_type' => 'journal',
+                            'date'         => $invoice->date,
+                            'ac_dr_sid'    => $cogsAccount->id,
+                            'ac_cr_sid'    => $inventoryAccount->id,
+                            'amount'       => $totalCost,
+                            'narration'    => "COGS for Invoice #{$invoice->invoice_no}",
+                            'remarks'      => "COGS (Landed Cost) for Invoice #{$invoice->invoice_no}",
+                            'reference'    => $invoice->id,
+                        ]);
+                    }
+                }
+
+                DB::commit();
+                $succeeded++;
+
+            } catch (\Throwable $e) {
+                DB::rollBack();
+                $failed[] = "Invoice #{$invoice->invoice_no}: " . $e->getMessage();
+                Log::error('[BulkRegenerate] Failed for invoice #' . $invoice->invoice_no, [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+            }
+        }
+
+        $message = "✓ Vouchers regenerated for {$succeeded} invoice(s).";
+        if (count($failed)) {
+            $message .= ' ' . count($failed) . ' failed: ' . implode('; ', $failed);
+        }
+
+        return response()->json([
+            'success'   => count($failed) === 0,
+            'message'   => $message,
+            'succeeded' => $succeeded,
+            'failed'    => count($failed),
+            'errors'    => $failed,
+        ]);
+    }
 }
