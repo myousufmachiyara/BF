@@ -12,8 +12,8 @@ class AccountsReportController extends Controller
 {
     public function accounts(Request $request)
     {
-        $from = $request->from_date ?? Carbon::now()->startOfMonth()->toDateString();
-        $to   = $request->to_date   ?? Carbon::now()->endOfMonth()->toDateString();
+        $from = $request->from_date ?? '2026-01-01'; // or dynamic financial year start
+        $to   = $request->to_date   ?? Carbon::now()->toDateString();
         $chartOfAccounts = ChartOfAccounts::orderBy('name')->get();
         $accountId = $request->account_id;
 
@@ -49,14 +49,13 @@ class AccountsReportController extends Controller
         $openingDr = (float) $account->receivables;
         $openingCr = (float) $account->payables;
 
-        // Only non-deleted vouchers (SoftDeletes handles this via Eloquent)
         $vDr = Voucher::where('ac_dr_sid', $accountId)
-                      ->where('date', '<=', $asOfDate)
-                      ->sum('amount');
+                    ->where('date', '<=', $asOfDate)
+                    ->sum('amount');
 
         $vCr = Voucher::where('ac_cr_sid', $accountId)
-                      ->where('date', '<=', $asOfDate)
-                      ->sum('amount');
+                    ->where('date', '<=', $asOfDate)
+                    ->sum('amount');
 
         return [
             'debit'  => $openingDr + (float)$vDr,
@@ -80,8 +79,7 @@ class AccountsReportController extends Controller
         $dayBefore  = Carbon::parse($from)->subDay()->format('Y-m-d');
         $isDebitNat = $this->isDebitNature($account->account_type);
 
-        // Opening balance = COA opening + all vouchers BEFORE the period
-        $opBal = $this->getAccountBalance($accountId, $dayBefore);
+        $opBal      = $this->getAccountBalance($accountId, $dayBefore);
         $runningBal = $isDebitNat
             ? ($opBal['debit'] - $opBal['credit'])
             : ($opBal['credit'] - $opBal['debit']);
@@ -96,10 +94,15 @@ class AccountsReportController extends Controller
             $this->fmt($runningBal),
         ]);
 
+        // FIX #2: Explicitly wrap the orWhere in a grouped closure
+        // This prevents any future scope injection from breaking the OR logic
         $vouchers = Voucher::whereBetween('date', [$from, $to])
-            ->where(fn($q) => $q->where('ac_dr_sid', $accountId)
-                                ->orWhere('ac_cr_sid', $accountId))
+            ->where(function ($q) use ($accountId) {
+                $q->where('ac_dr_sid', $accountId)
+                ->orWhere('ac_cr_sid', $accountId);
+            })
             ->orderBy('date')
+            ->orderBy('id')       // secondary sort for stable ordering same-day
             ->get();
 
         foreach ($vouchers as $v) {
@@ -273,9 +276,13 @@ class AccountsReportController extends Controller
     {
         $idArray  = $ids->toArray();
         $vouchers = Voucher::whereBetween('date', [$from, $to])
-            ->where(fn($q) => $q->whereIn('ac_dr_sid', $idArray)
-                                ->orWhereIn('ac_cr_sid', $idArray))
+            ->where(function ($q) use ($idArray) {
+                $q->whereIn('ac_dr_sid', $idArray)
+                ->orWhereIn('ac_cr_sid', $idArray);
+            })
             ->orderBy('date')
+            ->orderBy('id')
+            ->with(['debitAccount', 'creditAccount'])  // eager load — kills N+1
             ->get();
 
         $bal = 0;
@@ -286,8 +293,8 @@ class AccountsReportController extends Controller
 
             return [
                 $v->date,
-                ChartOfAccounts::find($v->ac_dr_sid)->name ?? 'N/A',
-                ChartOfAccounts::find($v->ac_cr_sid)->name ?? 'N/A',
+                $v->debitAccount->name  ?? 'N/A',
+                $v->creditAccount->name ?? 'N/A',
                 $this->fmt($dr),
                 $this->fmt($cr),
                 $this->fmt($bal),

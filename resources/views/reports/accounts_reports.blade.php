@@ -173,13 +173,15 @@
                                         </td>
                                     @endforeach
                                 </tr>
-                            @empty
-                                <tr>
-                                    <td colspan="10" class="text-center text-muted py-5">
-                                        No data found for the selected criteria.
-                                    </td>
-                                </tr>
-                            @endforelse
+                                @empty
+                                    <tr>
+                                        <td colspan="10" class="text-center text-muted py-5">
+                                            No transactions found between 
+                                            <strong>{{ $from }}</strong> and <strong>{{ $to }}</strong>.
+                                            <br>Try widening the date range.
+                                        </td>
+                                    </tr>
+                                @endforelse
                         </tbody>
 
                         {{-- ================= SUMMARY FOOTER ================= --}}
