@@ -156,21 +156,16 @@ class COAController extends Controller
         return response()->json($account);
     }
 
+    // In ChartOfAccountsController destroy()
     public function destroy($id)
     {
-        try {
-            $chartOfAccount = ChartOfAccounts::findOrFail($id);
-            
-            // Optional: Check if the account has linked transactions before deleting
-            // if ($chartOfAccount->transactions()->exists()) {
-            //     return redirect()->back()->with('error', 'Cannot delete account with existing transactions.');
-            // }
+        $protected = ChartOfAccounts::whereIn('account_type', ['revenue', 'cogs'])->pluck('id')->toArray();
 
-            $chartOfAccount->delete();
-
-            return redirect()->route('coa.index')->with('success', 'Chart of Account deleted successfully.');
-        } catch (\Exception $e) {
-            return redirect()->back()->with('error', 'Error deleting account: ' . $e->getMessage());
+        if (in_array($id, $protected)) {
+            return back()->with('error', 'System accounts (Revenue, COGS) cannot be deleted.');
         }
+
+        ChartOfAccounts::findOrFail($id)->delete();
+        return back()->with('success', 'Account deleted.');
     }
 }
