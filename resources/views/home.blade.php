@@ -14,7 +14,7 @@
 @else
 
 {{-- ── ROW 1: SALES OVERVIEW ───────────────────────────────────── --}}
-<h6 class="card-title text-uppercase text-dark fw-bold mb-2" style="font-size:11px;letter-spacing:1px;">
+<h6 class="card-title text-uppercase text-dark fw-bold mb-2 mt-4">
     <i class="fas fa-chart-line me-1"></i> Sales Overview
 </h6>
 <div class="row mb-3">
@@ -82,7 +82,7 @@
 </div>
 
 {{-- ── ROW 2: PROFIT ────────────────────────────────────────────── --}}
-<h6 class="card-title text-uppercase text-dark fw-bold mb-2" style="font-size:11px;letter-spacing:1px;">
+<h6 class="card-title text-uppercase text-dark fw-bold mb-2 mt-4">
     <i class="fas fa-coins me-1"></i> Profit (Revenue − COGS)
 </h6>
 <div class="row mb-3">
@@ -135,7 +135,7 @@
 </div>
 
 {{-- ── ROW 3: FINANCIAL POSITION ────────────────────────────────── --}}
-<h6 class="card-title text-uppercase text-dark fw-bold mb-2" style="font-size:11px;letter-spacing:1px;">
+<h6 class="card-title text-uppercase text-dark fw-bold mb-2 mt-4">
     <i class="fas fa-balance-scale me-1"></i> Financial Position
 </h6>
 <div class="row mb-3">
@@ -203,7 +203,7 @@
 </div>
 
 {{-- ── ROW 4: PURCHASES & RETURNS ───────────────────────────────── --}}
-<h6 class="card-title text-uppercase text-dark fw-bold mb-2" style="font-size:11px;letter-spacing:1px;">
+<h6 class="card-title text-uppercase text-dark fw-bold mb-2 mt-4">
     <i class="fas fa-shopping-cart me-1"></i> Purchases & Returns
 </h6>
 <div class="row mb-3">
