@@ -87,7 +87,7 @@
 </h6>
 <div class="row mb-3">
 
-    <div class="col-12 col-md-4 mb-2">
+    <div class="col-12 col-md-3 mb-2">
         <section class="card card-featured-left {{ $profitToday >= 0 ? 'card-featured-success' : 'card-featured-danger' }}">
             <div class="card-body icon-container data-container">
                 <h3 class="card-title amount text-dark"><strong>Today's Profit</strong></h3>
@@ -102,7 +102,7 @@
         </section>
     </div>
 
-    <div class="col-12 col-md-4 mb-2">
+    <div class="col-12 col-md-3 mb-2">
         <section class="card card-featured-left {{ $profitWeek >= 0 ? 'card-featured-success' : 'card-featured-danger' }}">
             <div class="card-body icon-container data-container">
                 <h3 class="card-title amount text-dark"><strong>This Week's Profit</strong></h3>
@@ -117,7 +117,7 @@
         </section>
     </div>
 
-    <div class="col-12 col-md-4 mb-2">
+    <div class="col-12 col-md-3 mb-2">
         <section class="card card-featured-left {{ $profitMonth >= 0 ? 'card-featured-success' : 'card-featured-danger' }}">
             <div class="card-body icon-container data-container">
                 <h3 class="card-title amount text-dark"><strong>This Month's Profit</strong></h3>
