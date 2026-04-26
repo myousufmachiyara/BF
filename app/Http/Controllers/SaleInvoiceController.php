@@ -17,40 +17,82 @@ use Illuminate\Support\Facades\Log;
 class SaleInvoiceController extends Controller
 {
     /* ---------------------------------------------------------------
-     | Shared stock calculation used by create() and edit()
-     | Accounts for: purchases, purchase returns, sales,
-     |               sale customizations, sale returns
+     | FIXED: Uses same raw DB logic as InventoryReportController
+     | so create/edit form stock matches stock-in-hand report exactly.
+     | Customization qty = parent invoice item qty (not row count).
      --------------------------------------------------------------- */
     private function getProductsWithStock(): \Illuminate\Support\Collection
     {
+        // ── Total purchased per product ──────────────────────────────
+        $purchased = DB::table('purchase_invoice_items')
+            ->join('purchase_invoices', 'purchase_invoice_items.purchase_invoice_id', '=', 'purchase_invoices.id')
+            ->whereNull('purchase_invoices.deleted_at')
+            ->groupBy('purchase_invoice_items.item_id')
+            ->select(
+                'purchase_invoice_items.item_id as product_id',
+                DB::raw('SUM(purchase_invoice_items.quantity) as qty')
+            )
+            ->pluck('qty', 'product_id');
+
+        // ── Total sold per product ────────────────────────────────────
+        $sold = DB::table('sale_invoice_items')
+            ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
+            ->whereNull('sale_invoices.deleted_at')
+            ->groupBy('sale_invoice_items.product_id')
+            ->select(
+                'sale_invoice_items.product_id',
+                DB::raw('SUM(sale_invoice_items.quantity) as qty')
+            )
+            ->pluck('qty', 'product_id');
+
+        // ── Total used as customization part per product ──────────────
+        // KEY FIX: SUM(sale_invoice_items.quantity) not COUNT(*)
+        // because each customization part is consumed at parent item qty.
+        // e.g. Chair qty=3 with Wheel customization → 3 Wheels consumed.
+        $customized = DB::table('sale_item_customization')
+            ->join('sale_invoices', 'sale_item_customization.sale_invoice_id', '=', 'sale_invoices.id')
+            ->join('sale_invoice_items', 'sale_invoice_items.id', '=', 'sale_item_customization.sale_invoice_items_id')
+            ->whereNull('sale_invoices.deleted_at')
+            ->groupBy('sale_item_customization.item_id')
+            ->select(
+                'sale_item_customization.item_id as product_id',
+                DB::raw('SUM(sale_invoice_items.quantity) as qty')
+            )
+            ->pluck('qty', 'product_id');
+
+        // ── Total purchase returned per product (stock goes out) ──────
+        $purchaseReturned = DB::table('purchase_return_items')
+            ->join('purchase_returns', 'purchase_return_items.purchase_return_id', '=', 'purchase_returns.id')
+            ->whereNull('purchase_returns.deleted_at')
+            ->groupBy('purchase_return_items.item_id')
+            ->select(
+                'purchase_return_items.item_id as product_id',
+                DB::raw('SUM(purchase_return_items.quantity) as qty')
+            )
+            ->pluck('qty', 'product_id');
+
+        // ── Total sale returned per product (stock comes back) ────────
+        $saleReturned = DB::table('sale_return_items')
+            ->join('sale_returns', 'sale_return_items.sale_return_id', '=', 'sale_returns.id')
+            ->whereNull('sale_returns.deleted_at')
+            ->groupBy('sale_return_items.product_id')
+            ->select(
+                'sale_return_items.product_id',
+                DB::raw('SUM(sale_return_items.qty) as qty')   // note: qty not quantity
+            )
+            ->pluck('qty', 'product_id');
+
         return Product::orderBy('name', 'asc')
-            ->withSum([
-                'purchaseInvoices as total_purchased' => fn($q) =>
-                    $q->whereHas('invoice', fn($q) => $q->whereNull('deleted_at'))
-            ], 'quantity')
-            ->withSum([
-                'saleInvoices as total_sold' => fn($q) =>
-                    $q->whereHas('invoice', fn($q) => $q->whereNull('deleted_at'))
-            ], 'quantity')
-            ->withCount([
-                'saleInvoiceParts as total_customized' => fn($q) =>
-                    $q->whereHas('saleInvoice', fn($q) => $q->whereNull('deleted_at'))
-            ])
-            ->withSum([
-                'purchaseReturns as total_purchase_returned' => fn($q) =>
-                    $q->whereHas('purchaseReturn', fn($q) => $q->whereNull('deleted_at'))
-            ], 'quantity')
-            ->withSum([
-                'saleReturns as total_sale_returned' => fn($q) =>
-                    $q->whereHas('saleReturn', fn($q) => $q->whereNull('deleted_at'))
-            ], 'qty')
+            ->whereNull('deleted_at')
             ->get()
-            ->map(function ($product) {
-                $in  = ($product->total_purchased       ?? 0)
-                     + ($product->total_sale_returned   ?? 0);
-                $out = ($product->total_sold            ?? 0)
-                     + ($product->total_customized      ?? 0)
-                     + ($product->total_purchase_returned ?? 0);
+            ->map(function ($product) use ($purchased, $sold, $customized, $purchaseReturned, $saleReturned) {
+                $in  = ($purchased[$product->id]        ?? 0)
+                     + ($saleReturned[$product->id]     ?? 0);
+
+                $out = ($sold[$product->id]             ?? 0)
+                     + ($customized[$product->id]       ?? 0)
+                     + ($purchaseReturned[$product->id] ?? 0);
+
                 $product->real_time_stock = $in - $out;
                 return $product;
             });
@@ -59,11 +101,16 @@ class SaleInvoiceController extends Controller
     /* ---------------------------------------------------------------
      | Shared customer + payment account queries (role-aware)
      --------------------------------------------------------------- */
-    private function getCustomers()
+    private function getCustomers($selectedId = null)
     {
         $q = ChartOfAccounts::where('account_type', 'customer');
         if (!auth()->user()->hasRole('superadmin')) {
-            $q->where('visibility', 'public');
+            $q->where(function ($query) use ($selectedId) {
+                $query->where('visibility', 'public');
+                if ($selectedId) {
+                    $query->orWhere('id', $selectedId);
+                }
+            });
         }
         return $q->orderBy('name')->get();
     }
@@ -78,12 +125,13 @@ class SaleInvoiceController extends Controller
     }
 
     /* ================= INDEX ================= */
-    // In SaleInvoiceController index()
     public function index()
     {
-        $invoices = SaleInvoice::with('items.product', 'account', 'receiptVouchers')->latest()->get();
+        $invoices = SaleInvoice::with('items.product', 'account', 'receiptVouchers')
+            ->latest()
+            ->get();
         return view('sales.index', compact('invoices'));
-    }   
+    }
 
     /* ================= CREATE ================= */
     public function create()
@@ -96,201 +144,127 @@ class SaleInvoiceController extends Controller
     }
 
     /* ================= STORE ================= */
-public function store(Request $request)
-{
-    Log::info('[SaleInvoice][Store] Request received', [
-        'user_id' => Auth::id(),
-        'input'   => $request->except(['_token']),
-    ]);
-
-    $validated = $request->validate([
-        'date'                     => 'required|date',
-        'account_id'               => 'required|exists:chart_of_accounts,id',
-        'type'                     => 'required|in:cash,credit',
-        'discount'                 => 'nullable|numeric|min:0',
-        'remarks'                  => 'nullable|string',
-        'items'                    => 'required|array|min:1',
-        'items.*.product_id'       => 'required|exists:products,id',
-        'items.*.sale_price'       => 'required|numeric|min:0',
-        'items.*.quantity'         => 'required|numeric|min:1',
-        'items.*.customizations'   => 'nullable|array',
-        'items.*.customizations.*' => 'exists:products,id',
-        'payment_account_id'       => 'nullable|exists:chart_of_accounts,id',
-        'amount_received'          => 'nullable|numeric|min:0',
-    ]);
-
-    Log::info('[SaleInvoice][Store] Validation passed', [
-        'items_count' => count($validated['items']),
-        'items'       => $validated['items'],
-    ]);
-
-    DB::beginTransaction();
-    try {
-        // ── Invoice number ──────────────────────────────────────────
-        $lastInvoice = SaleInvoice::withTrashed()->orderBy('id', 'desc')->first();
-        $invoiceNo   = str_pad($lastInvoice ? intval($lastInvoice->invoice_no) + 1 : 1, 6, '0', STR_PAD_LEFT);
-        Log::info('[SaleInvoice][Store] Invoice number generated', ['invoice_no' => $invoiceNo]);
-
-        // ── Create header ───────────────────────────────────────────
-        $invoice = SaleInvoice::create([
-            'invoice_no' => $invoiceNo,
-            'date'       => $validated['date'],
-            'account_id' => $validated['account_id'],
-            'type'       => $validated['type'],
-            'discount'   => $validated['discount'] ?? 0,
-            'remarks'    => $validated['remarks'] ?? null,
-            'created_by' => Auth::id(),
+    public function store(Request $request)
+    {
+        Log::info('[SaleInvoice][Store] Request received', [
+            'user_id' => Auth::id(),
+            'input'   => $request->except(['_token']),
         ]);
-        Log::info('[SaleInvoice][Store] Invoice header created', ['invoice_id' => $invoice->id]);
 
-        // ── Create items ────────────────────────────────────────────
-        $totalBill = 0;
+        $validated = $request->validate([
+            'date'                     => 'required|date',
+            'account_id'               => 'required|exists:chart_of_accounts,id',
+            'type'                     => 'required|in:cash,credit',
+            'discount'                 => 'nullable|numeric|min:0',
+            'remarks'                  => 'nullable|string',
+            'items'                    => 'required|array|min:1',
+            'items.*.product_id'       => 'required|exists:products,id',
+            'items.*.sale_price'       => 'required|numeric|min:0',
+            'items.*.quantity'         => 'required|numeric|min:1',
+            'items.*.customizations'   => 'nullable|array',
+            'items.*.customizations.*' => 'exists:products,id',
+            'payment_account_id'       => 'nullable|exists:chart_of_accounts,id',
+            'amount_received'          => 'nullable|numeric|min:0',
+        ]);
 
-        foreach ($validated['items'] as $idx => $item) {
-            Log::info("[SaleInvoice][Store] Processing item #{$idx}", ['item' => $item]);
+        DB::beginTransaction();
+        try {
+            // ── Invoice number ──────────────────────────────────────────
+            $lastInvoice = SaleInvoice::withTrashed()->orderBy('id', 'desc')->first();
+            $invoiceNo   = str_pad(
+                $lastInvoice ? intval($lastInvoice->invoice_no) + 1 : 1,
+                6, '0', STR_PAD_LEFT
+            );
 
-            try {
+            // ── Create header ───────────────────────────────────────────
+            $invoice = SaleInvoice::create([
+                'invoice_no' => $invoiceNo,
+                'date'       => $validated['date'],
+                'account_id' => $validated['account_id'],
+                'type'       => $validated['type'],
+                'discount'   => $validated['discount'] ?? 0,
+                'remarks'    => $validated['remarks'] ?? null,
+                'created_by' => Auth::id(),
+            ]);
+
+            // ── Create items + customizations ───────────────────────────
+            $totalBill = 0;
+
+            foreach ($validated['items'] as $idx => $item) {
                 $invoiceItem = SaleInvoiceItem::create([
                     'sale_invoice_id' => $invoice->id,
                     'product_id'      => $item['product_id'],
                     'sale_price'      => $item['sale_price'],
                     'quantity'        => $item['quantity'],
-                    // Remove 'discount' => 0 if that column doesn't exist in your table
                 ]);
-                Log::info("[SaleInvoice][Store] Item #{$idx} created", ['item_id' => $invoiceItem->id]);
-            } catch (\Throwable $itemEx) {
-                Log::error("[SaleInvoice][Store] Failed to create item #{$idx}", [
-                    'item'  => $item,
-                    'error' => $itemEx->getMessage(),
-                    'line'  => $itemEx->getLine(),
-                    'file'  => $itemEx->getFile(),
-                ]);
-                throw $itemEx; // re-throw to trigger rollback
-            }
 
-            $totalBill += $item['sale_price'] * $item['quantity'];
+                $totalBill += $item['sale_price'] * $item['quantity'];
 
-            // ── Customizations ──────────────────────────────────────
-            $customizations = $item['customizations'] ?? [];
-            Log::info("[SaleInvoice][Store] Item #{$idx} customizations", ['customizations' => $customizations]);
-
-            foreach ($customizations as $cidx => $customItemId) {
-                try {
+                foreach ($item['customizations'] ?? [] as $customItemId) {
                     SaleItemCustomization::create([
                         'sale_invoice_id'       => $invoice->id,
                         'sale_invoice_items_id' => $invoiceItem->id,
                         'item_id'               => $customItemId,
                     ]);
-                    Log::info("[SaleInvoice][Store] Customization #{$cidx} created for item #{$idx}", [
-                        'custom_item_id' => $customItemId,
-                    ]);
-                } catch (\Throwable $custEx) {
-                    Log::error("[SaleInvoice][Store] Failed to create customization #{$cidx} for item #{$idx}", [
-                        'custom_item_id' => $customItemId,
-                        'error'          => $custEx->getMessage(),
-                        'line'           => $custEx->getLine(),
-                        'file'           => $custEx->getFile(),
-                    ]);
-                    throw $custEx;
                 }
             }
-        }
 
-        $netTotal = $totalBill - ($validated['discount'] ?? 0);
-        Log::info('[SaleInvoice][Store] Items loop complete', [
-            'total_bill' => $totalBill,
-            'net_total'  => $netTotal,
-        ]);
+            $netTotal = $totalBill - ($validated['discount'] ?? 0);
 
-        // ── Sales Revenue voucher ───────────────────────────────────
-        $salesAccount = ChartOfAccounts::where('name', 'Sales Revenue')
-            ->orWhere('account_type', 'revenue')
-            ->first();
+            // ── Sales Revenue voucher ───────────────────────────────────
+            $salesAccount = ChartOfAccounts::withTrashed()
+                ->where('account_type', 'revenue')
+                ->first();
 
-        Log::info('[SaleInvoice][Store] Sales account lookup', [
-            'found'      => $salesAccount ? true : false,
-            'account_id' => $salesAccount?->id,
-            'name'       => $salesAccount?->name,
-        ]);
+            if (!$salesAccount) {
+                throw new \Exception('Sales Revenue account not found in COA.');
+            }
 
-        if (!$salesAccount) {
-            throw new \Exception('Sales Revenue account not found in COA. Check account_type = revenue or name = "Sales Revenue".');
-        }
-
-        try {
             Voucher::create([
                 'voucher_type' => 'journal',
                 'date'         => $validated['date'],
                 'ac_dr_sid'    => $validated['account_id'],
                 'ac_cr_sid'    => $salesAccount->id,
                 'amount'       => $netTotal,
-                'narration'    => "Sales Invoice #{$invoiceNo}",
                 'remarks'      => "Sales Invoice #{$invoiceNo}",
                 'reference'    => $invoice->id,
             ]);
-            Log::info('[SaleInvoice][Store] Sales revenue voucher created');
-        } catch (\Throwable $vEx) {
-            Log::error('[SaleInvoice][Store] Failed to create sales revenue voucher', [
-                'error' => $vEx->getMessage(),
-                'line'  => $vEx->getLine(),
-                'file'  => $vEx->getFile(),
-            ]);
-            throw $vEx;
-        }
 
-        // ── Payment receipt voucher ─────────────────────────────────
-        if ($request->filled('payment_account_id') && $request->amount_received > 0) {
-            Log::info('[SaleInvoice][Store] Creating payment receipt voucher', [
-                'payment_account_id' => $validated['payment_account_id'],
-                'amount_received'    => $validated['amount_received'],
-            ]);
-            try {
+            // ── Payment receipt voucher ─────────────────────────────────
+            if ($request->filled('payment_account_id') && $request->amount_received > 0) {
                 Voucher::create([
                     'voucher_type' => 'receipt',
                     'date'         => $validated['date'],
                     'ac_dr_sid'    => $validated['payment_account_id'],
                     'ac_cr_sid'    => $validated['account_id'],
                     'amount'       => $validated['amount_received'],
-                    'narration'    => "Payment received for Invoice #{$invoiceNo}",
                     'remarks'      => "Payment received for Invoice #{$invoiceNo}",
                     'reference'    => $invoice->id,
                 ]);
-                Log::info('[SaleInvoice][Store] Payment receipt voucher created');
-            } catch (\Throwable $pvEx) {
-                Log::error('[SaleInvoice][Store] Failed to create payment voucher', [
-                    'error' => $pvEx->getMessage(),
-                    'line'  => $pvEx->getLine(),
-                    'file'  => $pvEx->getFile(),
-                ]);
-                throw $pvEx;
             }
-        } else {
-            Log::info('[SaleInvoice][Store] No payment receipt — skipped', [
-                'payment_account_id_filled' => $request->filled('payment_account_id'),
-                'amount_received'           => $request->amount_received,
+
+            // ── COGS voucher ────────────────────────────────────────────
+            $this->recordCogsVoucher(
+                $validated['items'],
+                $validated['date'],
+                $invoiceNo,
+                $invoice->id
+            );
+
+            DB::commit();
+            return redirect()->route('sale_invoices.index')
+                ->with('success', 'Sale Invoice saved successfully.');
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('[SaleInvoice][Store] ROLLED BACK', [
+                'error' => $e->getMessage(),
+                'line'  => $e->getLine(),
+                'file'  => $e->getFile(),
             ]);
+            return back()->withInput()->with('error', 'Error saving invoice: ' . $e->getMessage());
         }
-
-        // ── COGS voucher ────────────────────────────────────────────
-        Log::info('[SaleInvoice][Store] Recording COGS voucher');
-        $this->recordCogsVoucher($validated['items'], $validated['date'], $invoiceNo, $invoice->id);
-
-        DB::commit();
-        Log::info('[SaleInvoice][Store] Transaction committed successfully', ['invoice_id' => $invoice->id]);
-
-        return redirect()->route('sale_invoices.index')->with('success', 'Sale Invoice saved successfully.');
-
-    } catch (\Throwable $e) {
-        DB::rollBack();
-        Log::error('[SaleInvoice][Store] TRANSACTION ROLLED BACK', [
-            'error'   => $e->getMessage(),
-            'line'    => $e->getLine(),
-            'file'    => $e->getFile(),
-            'trace'   => $e->getTraceAsString(),
-        ]);
-        return back()->withInput()->with('error', 'Error saving invoice: ' . $e->getMessage());
     }
-}
 
     /* ================= EDIT ================= */
     public function edit($id)
@@ -298,22 +272,38 @@ public function store(Request $request)
         $invoice  = SaleInvoice::with(['items.customizations', 'account'])->findOrFail($id);
         $products = $this->getProductsWithStock();
 
-        // Add back this invoice's own quantities so the edit form
-        // doesn't falsely flag existing rows as over-stock
-        $invoiceQtyMap = $invoice->items->keyBy('product_id');
-        $products = $products->map(function ($product) use ($invoiceQtyMap) {
-            if ($invoiceQtyMap->has($product->id)) {
-                $product->real_time_stock += $invoiceQtyMap[$product->id]->quantity;
+        // ── Add back main product quantities ─────────────────────────
+        // Without this, existing items on the invoice appear as "over-stock"
+        $mainQtyMap = $invoice->items->keyBy('product_id');
+
+        // ── Add back customization part quantities ────────────────────
+        // Each part is consumed at the PARENT item's quantity.
+        // e.g. Chair qty=3 with Wheel → Wheel consumed 3, so add 3 back.
+        $customQtyMap = [];
+        foreach ($invoice->items as $item) {
+            foreach ($item->customizations as $customization) {
+                $partId = $customization->item_id;
+                $customQtyMap[$partId] = ($customQtyMap[$partId] ?? 0) + $item->quantity;
+            }
+        }
+
+        $products = $products->map(function ($product) use ($mainQtyMap, $customQtyMap) {
+            if ($mainQtyMap->has($product->id)) {
+                $product->real_time_stock += $mainQtyMap[$product->id]->quantity;
+            }
+            if (isset($customQtyMap[$product->id])) {
+                $product->real_time_stock += $customQtyMap[$product->id];
             }
             return $product;
         });
 
-        // Amount already received across all payment vouchers for this invoice
         $amountReceived = Voucher::where('reference', $invoice->id)
             ->where('voucher_type', 'receipt')
+            ->whereNull('deleted_at')
             ->sum('amount');
 
-        $customers       = $this->getCustomers();
+        // Pass current account_id so private customers still appear in dropdown
+        $customers       = $this->getCustomers($invoice->account_id);
         $paymentAccounts = $this->getPaymentAccounts();
 
         return view('sales.edit', compact(
@@ -342,6 +332,15 @@ public function store(Request $request)
 
         DB::beginTransaction();
         try {
+            // ── Look up system accounts FIRST, fail fast if missing ───
+            $salesAccount     = ChartOfAccounts::withTrashed()->where('account_type', 'revenue')->first();
+            $inventoryAccount = ChartOfAccounts::withTrashed()->where('name', 'Stock in Hand')->first();
+            $cogsAccount      = ChartOfAccounts::withTrashed()->where('account_type', 'cogs')->first();
+
+            if (!$salesAccount) {
+                throw new \Exception('Sales Revenue account (account_type=revenue) not found in COA.');
+            }
+
             $invoice   = SaleInvoice::findOrFail($id);
             $invoiceNo = $invoice->invoice_no;
 
@@ -350,19 +349,15 @@ public function store(Request $request)
                 'account_id' => $validated['account_id'],
                 'type'       => $validated['type'],
                 'discount'   => $validated['discount'] ?? 0,
-                'remarks'    => $validated['remarks'],
+                'remarks'    => $validated['remarks'] ?? null,
             ]);
 
-            // Clear items and customizations, re-insert fresh
+            // ── Clear and re-insert items + customizations ────────────
             SaleItemCustomization::where('sale_invoice_id', $invoice->id)->delete();
             $invoice->items()->delete();
 
             $totalBill = 0;
             $totalCost = 0;
-
-            $salesAccount     = ChartOfAccounts::where('account_type', 'revenue')->first();
-            $inventoryAccount = ChartOfAccounts::where('name', 'Stock in Hand')->first();
-            $cogsAccount      = ChartOfAccounts::where('account_type', 'cogs')->first();
 
             foreach ($validated['items'] as $item) {
                 $invoiceItem = SaleInvoiceItem::create([
@@ -374,7 +369,8 @@ public function store(Request $request)
 
                 $totalBill += $item['sale_price'] * $item['quantity'];
 
-                $itemCost = $this->calcLandedCost($item['product_id']);
+                // Unit cost = main product + all its customization parts
+                $unitCost = $this->calcLandedCost($item['product_id']);
 
                 foreach ($item['customizations'] ?? [] as $customId) {
                     SaleItemCustomization::create([
@@ -382,33 +378,32 @@ public function store(Request $request)
                         'sale_invoice_items_id' => $invoiceItem->id,
                         'item_id'               => $customId,
                     ]);
-                    $itemCost += $this->calcLandedCost($customId);
+                    $unitCost += $this->calcLandedCost($customId);
                 }
 
-                $totalCost += $itemCost * $item['quantity'];
+                $totalCost += $unitCost * $item['quantity'];
             }
 
-            $netTotal = $totalBill - ($validated['discount'] ?? 0);
+            $netTotal = max(0, $totalBill - ($validated['discount'] ?? 0));
             $invoice->update(['net_amount' => $netTotal]);
 
-            // Delete journal/cogs vouchers for this invoice, keep old receipts
+            // ── Delete old journal vouchers, keep receipts ────────────
             Voucher::where('reference', $invoice->id)
                 ->where('voucher_type', 'journal')
                 ->delete();
 
-            // Re-create sales revenue voucher
+            // ── Re-create Sales Revenue voucher ──────────────────────
             Voucher::create([
                 'voucher_type' => 'journal',
                 'date'         => $validated['date'],
                 'ac_dr_sid'    => $validated['account_id'],
-                'ac_cr_sid'    => $salesAccount->id ?? null,
+                'ac_cr_sid'    => $salesAccount->id,
                 'amount'       => $netTotal,
-                'narration'    => "Sales Invoice #{$invoiceNo}",
                 'remarks'      => "Updated: Sales Invoice #{$invoiceNo}",
                 'reference'    => $invoice->id,
             ]);
 
-            // Re-create COGS voucher
+            // ── Re-create COGS voucher ────────────────────────────────
             if ($inventoryAccount && $cogsAccount && $totalCost > 0) {
                 Voucher::create([
                     'voucher_type' => 'journal',
@@ -416,13 +411,12 @@ public function store(Request $request)
                     'ac_dr_sid'    => $cogsAccount->id,
                     'ac_cr_sid'    => $inventoryAccount->id,
                     'amount'       => $totalCost,
-                    'narration'    => "COGS for Invoice #{$invoiceNo}",
                     'remarks'      => "Updated: COGS for Invoice #{$invoiceNo}",
                     'reference'    => $invoice->id,
                 ]);
             }
 
-            // Add new payment receipt if provided
+            // ── Optional new payment receipt ──────────────────────────
             if ($request->filled('payment_account_id') && $request->amount_received > 0) {
                 Voucher::create([
                     'voucher_type' => 'receipt',
@@ -430,7 +424,6 @@ public function store(Request $request)
                     'ac_dr_sid'    => $validated['payment_account_id'],
                     'ac_cr_sid'    => $validated['account_id'],
                     'amount'       => $validated['amount_received'],
-                    'narration'    => "Payment for Invoice #{$invoiceNo}",
                     'remarks'      => "Payment received for Invoice #{$invoiceNo}",
                     'reference'    => $invoice->id,
                 ]);
@@ -442,12 +435,17 @@ public function store(Request $request)
                 \Cache::forget("landed_cost_prod_{$item['product_id']}");
             }
 
-            return redirect()->route('sale_invoices.index')->with('success', 'Invoice updated successfully.');
+            return redirect()->route('sale_invoices.index')
+                ->with('success', 'Invoice updated successfully.');
 
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('[SaleInvoice] Update failed: ' . $e->getMessage());
-            return back()->with('error', 'Update failed: ' . $e->getMessage())->withInput();
+            Log::error('[SaleInvoice] Update failed: ' . $e->getMessage(), [
+                'invoice_id' => $id,
+                'trace'      => $e->getTraceAsString(),
+            ]);
+            return back()->withInput()
+                ->with('error', 'Update failed: ' . $e->getMessage());
         }
     }
 
@@ -464,7 +462,8 @@ public function store(Request $request)
             $invoice->delete();
 
             DB::commit();
-            return redirect()->route('sale_invoices.index')->with('success', 'Invoice deleted successfully.');
+            return redirect()->route('sale_invoices.index')
+                ->with('success', 'Invoice deleted successfully.');
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -476,7 +475,7 @@ public function store(Request $request)
     /* ================= SHOW ================= */
     public function show($id)
     {
-        $invoice = SaleInvoice::with('items.product', 'items.variation', 'account')->findOrFail($id);
+        $invoice = SaleInvoice::with('items.product', 'account')->findOrFail($id);
         return response()->json($invoice);
     }
 
@@ -487,6 +486,7 @@ public function store(Request $request)
 
         $amountReceived = Voucher::where('reference', $invoice->id)
             ->where('voucher_type', 'receipt')
+            ->whereNull('deleted_at')
             ->sum('amount');
 
         $pdf = new \TCPDF();
@@ -515,9 +515,18 @@ public function store(Request $request)
             <tr>
                 <td width="40%">
                     <table border="1" cellpadding="4" cellspacing="0" style="font-size:10px;">
-                        <tr><td width="30%"><b>Customer</b></td><td width="70%">' . ($invoice->account->name ?? '-') . '</td></tr>
-                        <tr><td width="30%"><b>Invoice No</b></td><td width="70%">' . $invoice->invoice_no . '</td></tr>
-                        <tr><td width="30%"><b>Date</b></td><td width="70%">' . \Carbon\Carbon::parse($invoice->date)->format('d-m-Y') . '</td></tr>
+                        <tr>
+                            <td width="30%"><b>Customer</b></td>
+                            <td width="70%">' . ($invoice->account->name ?? '-') . '</td>
+                        </tr>
+                        <tr>
+                            <td width="30%"><b>Invoice No</b></td>
+                            <td width="70%">' . $invoice->invoice_no . '</td>
+                        </tr>
+                        <tr>
+                            <td width="30%"><b>Date</b></td>
+                            <td width="70%">' . \Carbon\Carbon::parse($invoice->date)->format('d-m-Y') . '</td>
+                        </tr>
                     </table>
                 </td>
                 <td width="60%"></td>
@@ -527,7 +536,7 @@ public function store(Request $request)
 
         $html = '
         <table border="1" cellpadding="4" style="text-align:center;font-size:10px;">
-            <tr style="font-weight:bold; background-color:#f5f5f5;">
+            <tr style="font-weight:bold;background-color:#f5f5f5;">
                 <th width="6%">#</th>
                 <th width="54%">Item</th>
                 <th width="10%">Qty</th>
@@ -552,9 +561,9 @@ public function store(Request $request)
             </tr>';
         }
 
-        $discount    = $invoice->discount ?? 0;
-        $netTotal    = $subTotal - $discount;
-        $balanceDue  = $netTotal - $amountReceived;
+        $discount   = $invoice->discount ?? 0;
+        $netTotal   = $subTotal - $discount;
+        $balanceDue = $netTotal - $amountReceived;
 
         $html .= '
         <tr>
@@ -565,7 +574,11 @@ public function store(Request $request)
         </tr>';
 
         if ($discount > 0) {
-            $html .= '<tr><td colspan="4" align="right"><b>Less: Discount</b></td><td>' . number_format($discount, 2) . '</td></tr>';
+            $html .= '
+            <tr>
+                <td colspan="4" align="right"><b>Less: Discount</b></td>
+                <td>' . number_format($discount, 2) . '</td>
+            </tr>';
         }
 
         $html .= '
@@ -587,7 +600,10 @@ public function store(Request $request)
 
         if (!empty($invoice->remarks)) {
             $pdf->Ln(5);
-            $pdf->writeHTML('<b>Remarks:</b><br>' . nl2br($invoice->remarks), true, false, false, false, '');
+            $pdf->writeHTML(
+                '<b>Remarks:</b><br>' . nl2br($invoice->remarks),
+                true, false, false, false, ''
+            );
         }
 
         if ($pdf->GetY() > 250) $pdf->AddPage();
@@ -606,7 +622,7 @@ public function store(Request $request)
     }
 
     /* ---------------------------------------------------------------
-     | Private: Calculate landed cost for one product
+     | Private: Calculate landed cost for one product (cached 24hr)
      --------------------------------------------------------------- */
     private function calcLandedCost(int $productId): float
     {
@@ -633,8 +649,8 @@ public function store(Request $request)
      --------------------------------------------------------------- */
     private function recordCogsVoucher(array $items, string $date, string $invoiceNo, int $invoiceId): void
     {
-        $inventoryAccount = ChartOfAccounts::where('name', 'Stock in Hand')->first();
-        $cogsAccount      = ChartOfAccounts::where('account_type', 'cogs')->first();
+        $inventoryAccount = ChartOfAccounts::withTrashed()->where('name', 'Stock in Hand')->first();
+        $cogsAccount      = ChartOfAccounts::withTrashed()->where('account_type', 'cogs')->first();
 
         if (!$inventoryAccount || !$cogsAccount) {
             Log::warning('[SaleInvoice] COGS voucher skipped — account missing.');
@@ -658,7 +674,6 @@ public function store(Request $request)
             'ac_dr_sid'    => $cogsAccount->id,
             'ac_cr_sid'    => $inventoryAccount->id,
             'amount'       => $totalCost,
-            'narration'    => "COGS for Invoice #{$invoiceNo}",
             'remarks'      => "COGS (Landed Cost) for Invoice #{$invoiceNo}",
             'reference'    => $invoiceId,
         ]);
@@ -672,9 +687,9 @@ public function store(Request $request)
             'invoice_ids.*' => 'exists:sale_invoices,id',
         ]);
 
-        $salesAccount     = ChartOfAccounts::where('account_type', 'revenue')->first();
-        $inventoryAccount = ChartOfAccounts::where('name', 'Stock in Hand')->first();
-        $cogsAccount      = ChartOfAccounts::where('account_type', 'cogs')->first();
+        $salesAccount     = ChartOfAccounts::withTrashed()->where('account_type', 'revenue')->first();
+        $inventoryAccount = ChartOfAccounts::withTrashed()->where('name', 'Stock in Hand')->first();
+        $cogsAccount      = ChartOfAccounts::withTrashed()->where('account_type', 'cogs')->first();
 
         if (!$salesAccount) {
             return response()->json([
@@ -683,40 +698,32 @@ public function store(Request $request)
             ], 422);
         }
 
-        $invoices = SaleInvoice::with('items.customizations')
-            ->whereIn('id', $request->invoice_ids)
-            ->get();
-
+        $invoices  = SaleInvoice::with('items.customizations')->whereIn('id', $request->invoice_ids)->get();
         $succeeded = 0;
         $failed    = [];
 
         foreach ($invoices as $invoice) {
             DB::beginTransaction();
             try {
-                // ── 1. Wipe existing journal vouchers only ──────────────────
                 Voucher::where('reference', $invoice->id)
                     ->where('voucher_type', 'journal')
                     ->delete();
 
-                // ── 2. Recalculate net total ────────────────────────────────
-                $totalBill = $invoice->items->sum(fn($item) =>
-                    $item->sale_price * $item->quantity
-                );
-                $netTotal = max(0, $totalBill - ($invoice->discount ?? 0));
+                $totalBill = $invoice->items->sum(fn($i) => $i->sale_price * $i->quantity);
+                $netTotal  = max(0, $totalBill - ($invoice->discount ?? 0));
 
-                // ── 3. Sales Revenue voucher ────────────────────────────────
+                // Sales Revenue voucher
                 Voucher::create([
                     'voucher_type' => 'journal',
                     'date'         => $invoice->date,
                     'ac_dr_sid'    => $invoice->account_id,
                     'ac_cr_sid'    => $salesAccount->id,
                     'amount'       => $netTotal,
-                    'narration'    => "Sales Invoice #{$invoice->invoice_no}",
                     'remarks'      => "Sales Invoice #{$invoice->invoice_no}",
                     'reference'    => $invoice->id,
                 ]);
 
-                // ── 4. COGS voucher ─────────────────────────────────────────
+                // COGS voucher
                 if ($inventoryAccount && $cogsAccount) {
                     $totalCost = 0;
                     foreach ($invoice->items as $item) {
@@ -734,7 +741,6 @@ public function store(Request $request)
                             'ac_dr_sid'    => $cogsAccount->id,
                             'ac_cr_sid'    => $inventoryAccount->id,
                             'amount'       => $totalCost,
-                            'narration'    => "COGS for Invoice #{$invoice->invoice_no}",
                             'remarks'      => "COGS (Landed Cost) for Invoice #{$invoice->invoice_no}",
                             'reference'    => $invoice->id,
                         ]);
@@ -749,7 +755,6 @@ public function store(Request $request)
                 $failed[] = "Invoice #{$invoice->invoice_no}: " . $e->getMessage();
                 Log::error('[BulkRegenerate] Failed for invoice #' . $invoice->invoice_no, [
                     'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString(),
                 ]);
             }
         }
