@@ -152,7 +152,7 @@
           {{-- ================= PAYMENT HISTORY (EDITABLE) ================= --}}
           @if($invoice->receiptVouchers->count())
           <div id="receiptsSection" class="mb-3">
-            <h5 class="mb-2">
+            <h5 class="mb-2 card-title">
               <i class="fas fa-history me-1 text-warning"></i> Payment History
               <small class="text-muted fw-normal">(edit or delete existing payments)</small>
             </h5>
