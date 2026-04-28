@@ -51,7 +51,11 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/get-purchase-items/{id}', [PurchaseBiltyController::class, 'getInvoiceItems']);
 
     Route::post('sale-invoices/bulk-regenerate-vouchers', [SaleInvoiceController::class, 'bulkRegenerateVouchers'])->name('sale_invoices.bulk_regenerate_vouchers');
+    Route::delete('sale-invoices/receipt/{id}', [SaleInvoiceController::class, 'deleteReceipt'])
+        ->middleware('check.permission:sale_invoices.delete')
+        ->name('sale_invoices.delete_receipt');
 
+    
     // Common Modules
     $modules = [
         // User Management

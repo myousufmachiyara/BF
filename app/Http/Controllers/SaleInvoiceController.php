@@ -429,6 +429,29 @@ class SaleInvoiceController extends Controller
                 ]);
             }
 
+            // ── Update existing receipt vouchers ─────────────────────────
+            if (!empty($request->existing_receipts)) {
+                $this->updateExistingReceipts(
+                    $request->existing_receipts,
+                    $validated['account_id']
+                );
+            }
+
+            // ── Optional new payment receipt ──────────────────────────────
+            if ($request->filled('payment_account_id') && $request->amount_received > 0) {
+                Voucher::create([
+                    'voucher_type' => 'receipt',
+                    'date'         => $request->payment_date ?? $validated['date'],
+                    'ac_dr_sid'    => $validated['payment_account_id'],
+                    'ac_cr_sid'    => $validated['account_id'],
+                    'amount'       => $validated['amount_received'],
+                    'remarks'      => $request->payment_remarks
+                                        ? $request->payment_remarks
+                                        : "Payment received for Invoice #{$invoiceNo}",
+                    'reference'    => $invoice->id,
+                ]);
+            }
+
             DB::commit();
 
             foreach ($validated['items'] as $item) {
@@ -771,5 +794,43 @@ class SaleInvoiceController extends Controller
             'failed'    => count($failed),
             'errors'    => $failed,
         ]);
+    }
+
+    /* ================= DELETE SINGLE RECEIPT ================= */
+    public function deleteReceipt($id)
+    {
+        try {
+            $voucher = Voucher::where('id', $id)
+                ->where('voucher_type', 'receipt')
+                ->firstOrFail();
+
+            $voucher->delete();
+
+            return response()->json(['success' => true, 'message' => 'Receipt deleted.']);
+
+        } catch (\Exception $e) {
+            Log::error('[SaleInvoice] Delete receipt failed: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /* ================= UPDATE EXISTING RECEIPTS (called inside update()) ================= */
+    private function updateExistingReceipts(array $receipts, int $invoiceAccountId): void
+    {
+        foreach ($receipts as $voucherId => $data) {
+            $voucher = Voucher::where('id', $voucherId)
+                ->where('voucher_type', 'receipt')
+                ->first();
+
+            if (!$voucher) continue;
+
+            $voucher->update([
+                'date'      => $data['date']               ?? $voucher->date,
+                'ac_dr_sid' => $data['payment_account_id'] ?? $voucher->ac_dr_sid,
+                'ac_cr_sid' => $invoiceAccountId,
+                'amount'    => $data['amount']             ?? $voucher->amount,
+                'remarks'   => $data['remarks']            ?? $voucher->remarks,
+            ]);
+        }
     }
 }

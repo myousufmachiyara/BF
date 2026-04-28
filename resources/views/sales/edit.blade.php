@@ -75,16 +75,11 @@
                   <select name="items[{{ $i }}][product_id]" class="form-control product-select" required>
                     <option value="">— Select —</option>
                     @foreach($products as $product)
-                      @php
-                        $isThis      = $item->product_id == $product->id;
-                        // Controller already added this invoice's qty back into real_time_stock
-                        $displayStock = $product->real_time_stock;
-                      @endphp
                       <option value="{{ $product->id }}"
                               data-price="{{ $product->selling_price ?? 0 }}"
-                              data-stock="{{ $displayStock }}"
-                              {{ $isThis ? 'selected' : '' }}>
-                        {{ $product->name }} ({{ $displayStock }})
+                              data-stock="{{ $product->real_time_stock }}"
+                              {{ $item->product_id == $product->id ? 'selected' : '' }}>
+                        {{ $product->name }} ({{ $product->real_time_stock }})
                       </option>
                     @endforeach
                   </select>
@@ -130,7 +125,8 @@
 
           <hr>
 
-          <div class="row mb-2">
+          {{-- ================= TOTALS ROW ================= --}}
+          <div class="row mb-3">
             <div class="col-md-4">
               <label>Remarks</label>
               <textarea name="remarks" class="form-control" rows="3">{{ $invoice->remarks }}</textarea>
@@ -139,39 +135,122 @@
               <label>Discount (PKR)</label>
               <input type="number" name="discount" id="discountInput" class="form-control"
                      step="any" min="0" value="{{ $invoice->discount ?? 0 }}">
-              <div class="mt-3 p-2 bg-light border rounded">
-                <small class="text-muted d-block">Already Received</small>
-                <strong class="text-success">PKR {{ number_format($amountReceived, 2) }}</strong>
-                <input type="hidden" id="amountReceivedHidden" value="{{ $amountReceived }}">
-              </div>
             </div>
             <div class="col-md-5 text-end">
               <label class="d-block">Net Payable</label>
               <h3 class="text-primary mb-1">PKR <span id="netAmountText">0.00</span></h3>
               <input type="hidden" name="net_amount" id="netAmountInput">
-              <label class="d-block mt-2">Remaining Balance</label>
+              <label class="d-block mt-2">Total Received</label>
+              <h5 class="text-success mb-1">PKR <span id="totalReceivedText">{{ number_format($amountReceived, 2) }}</span></h5>
+              <label class="d-block">Remaining Balance</label>
               <h4 class="text-danger mb-0">PKR <span id="balanceAmountText">0.00</span></h4>
             </div>
           </div>
 
           <hr>
 
-          <div class="row p-3 mb-2 rounded" style="background:#e7f3ff;border:1px solid #b8daff;">
-            <div class="col-md-12 mb-2">
-              <h5><i class="fas fa-plus-circle"></i> Add New Payment (Optional)</h5>
+          {{-- ================= PAYMENT HISTORY (EDITABLE) ================= --}}
+          @if($invoice->receiptVouchers->count())
+          <div id="receiptsSection" class="mb-3">
+            <h5 class="mb-2">
+              <i class="fas fa-history me-1 text-warning"></i> Payment History
+              <small class="text-muted fw-normal">(edit or delete existing payments)</small>
+            </h5>
+            <div class="table-responsive">
+              <table class="table table-sm table-bordered" id="receiptsTable">
+                <thead class="table-warning">
+                  <tr>
+                    <th style="font-size:11px;">Date</th>
+                    <th style="font-size:11px;">Account (Cash / Bank)</th>
+                    <th class="text-end" style="font-size:11px;">Amount</th>
+                    <th style="font-size:11px;">Remarks</th>
+                    <th width="5%" style="font-size:11px;"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @foreach($invoice->receiptVouchers as $rv)
+                  <tr id="receipt-row-{{ $rv->id }}">
+                    <td>
+                      <input type="date"
+                             name="existing_receipts[{{ $rv->id }}][date]"
+                             class="form-control form-control-sm"
+                             value="{{ $rv->date }}">
+                    </td>
+                    <td>
+                      <select name="existing_receipts[{{ $rv->id }}][payment_account_id]"
+                              class="form-control form-control-sm receipt-account-select">
+                        @foreach($paymentAccounts as $pa)
+                          <option value="{{ $pa->id }}"
+                                  {{ $rv->ac_dr_sid == $pa->id ? 'selected' : '' }}>
+                            {{ $pa->name }}
+                          </option>
+                        @endforeach
+                      </select>
+                    </td>
+                    <td>
+                      <input type="number"
+                             name="existing_receipts[{{ $rv->id }}][amount]"
+                             class="form-control form-control-sm text-end receipt-amount"
+                             step="any" min="0"
+                             value="{{ $rv->amount }}">
+                    </td>
+                    <td>
+                      <input type="text"
+                             name="existing_receipts[{{ $rv->id }}][remarks]"
+                             class="form-control form-control-sm"
+                             value="{{ $rv->remarks ?? '' }}">
+                    </td>
+                    <td class="text-center">
+                      <button type="button"
+                              class="btn btn-danger btn-sm delete-receipt-btn"
+                              data-voucher-id="{{ $rv->id }}"
+                              title="Delete this receipt">
+                        <i class="fas fa-trash"></i>
+                      </button>
+                    </td>
+                  </tr>
+                  @endforeach
+                </tbody>
+                <tfoot class="table-light">
+                  <tr>
+                    <td colspan="2" class="text-end fw-bold py-2">Total Received:</td>
+                    <td class="text-end fw-bold text-success py-2" id="receiptTableTotal">
+                      PKR {{ number_format($amountReceived, 2) }}
+                    </td>
+                    <td colspan="2"></td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
-            <div class="col-md-6">
-              <label>Receive In (Cash / Bank)</label>
-              <select name="payment_account_id" class="form-control select2-js">
-                <option value="">— No New Payment —</option>
-                @foreach($paymentAccounts as $pa)
-                  <option value="{{ $pa->id }}">{{ $pa->name }}</option>
-                @endforeach
-              </select>
-            </div>
-            <div class="col-md-6">
-              <label>New Amount Received Now</label>
-              <input type="number" name="amount_received" class="form-control" step="any" min="0" placeholder="0.00">
+          </div>
+          @endif
+
+          {{-- ================= ADD NEW PAYMENT ================= --}}
+          <div class="p-3 mb-2 rounded" style="background:#e7f3ff;border:1px solid #b8daff;">
+            <h5 class="mb-3"><i class="fas fa-plus-circle me-1"></i> Add New Payment <small class="text-muted fw-normal">(optional)</small></h5>
+            <div class="row">
+              <div class="col-md-3">
+                <label class="small fw-bold">Date</label>
+                <input type="date" name="payment_date" class="form-control" value="{{ date('Y-m-d') }}">
+              </div>
+              <div class="col-md-4">
+                <label class="small fw-bold">Receive In (Cash / Bank)</label>
+                <select name="payment_account_id" class="form-control select2-js">
+                  <option value="">— No New Payment —</option>
+                  @foreach($paymentAccounts as $pa)
+                    <option value="{{ $pa->id }}">{{ $pa->name }}</option>
+                  @endforeach
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label class="small fw-bold">Amount</label>
+                <input type="number" name="amount_received" class="form-control"
+                       step="any" min="0" placeholder="0.00">
+              </div>
+              <div class="col-md-2">
+                <label class="small fw-bold">Remarks</label>
+                <input type="text" name="payment_remarks" class="form-control" placeholder="Optional">
+              </div>
             </div>
           </div>
 
@@ -189,7 +268,6 @@
 </div>
 
 @php
-  // Pass adjusted product stock to JS — controller already added back this invoice's quantities
   $productsJson = $products->map(fn($p) => [
       'id'    => $p->id,
       'name'  => $p->name,
@@ -199,18 +277,27 @@
 @endphp
 
 <script>
-const PRODUCTS = {!! $productsJson !!};
-let rowIndex = {{ $invoice->items->count() }};
+const PRODUCTS     = {!! $productsJson !!};
+const DELETE_URL   = '{{ route("sale_invoices.delete_receipt", ":id") }}';
+const CSRF_TOKEN   = '{{ csrf_token() }}';
+let rowIndex       = {{ $invoice->items->count() }};
 
 $(document).ready(function () {
+
+    // ── Select2 init (non-table) ───────────────────────────────────
     $('select.select2-js').not('#itemTable select').select2({ width: '100%' });
 
+    // ── Select2 init for receipt account dropdowns ─────────────────
+    $('.receipt-account-select').select2({ width: '100%' });
+
+    // ── Init existing item rows ────────────────────────────────────
     $('#itemTable tbody tr').each(function () {
         initRow($(this));
         calcRowTotal($(this));
         checkQtyStock($(this));
     });
 
+    // ── Product change ─────────────────────────────────────────────
     $(document).on('change', '.product-select', function () {
         const row = $(this).closest('tr');
         row.find('.sale-price').val($(this).find(':selected').data('price') || 0);
@@ -220,6 +307,7 @@ $(document).ready(function () {
         calcRowTotal(row);
     });
 
+    // ── Price / qty input ──────────────────────────────────────────
     $(document).on('input', '.sale-price', function () {
         calcRowTotal($(this).closest('tr'));
     });
@@ -230,11 +318,87 @@ $(document).ready(function () {
         calcRowTotal(row);
     });
 
+    // ── Discount change ────────────────────────────────────────────
     $(document).on('input', '#discountInput', calcTotal);
 
+    // ── Receipt amount live update ─────────────────────────────────
+    $(document).on('input', '.receipt-amount', function () {
+        recalcReceipts();
+    });
+
+    // ── Delete receipt (AJAX) ──────────────────────────────────────
+    $(document).on('click', '.delete-receipt-btn', function () {
+        const btn       = $(this);
+        const voucherId = btn.data('voucher-id');
+
+        if (!confirm('Delete this payment receipt?\n\nThis will permanently remove it from accounting records.')) return;
+
+        btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
+
+        $.ajax({
+            url:  DELETE_URL.replace(':id', voucherId),
+            type: 'DELETE',
+            data: { _token: CSRF_TOKEN },
+            success: function (res) {
+                if (res.success) {
+                    $('#receipt-row-' + voucherId).fadeOut(300, function () {
+                        $(this).remove();
+                        recalcReceipts();
+
+                        // Hide the whole section if no receipts left
+                        if ($('#receiptsTable tbody tr').length === 0) {
+                            $('#receiptsSection').fadeOut();
+                        }
+                    });
+                } else {
+                    alert('Error: ' + res.message);
+                    btn.prop('disabled', false).html('<i class="fas fa-trash"></i>');
+                }
+            },
+            error: function (xhr) {
+                const msg = xhr.responseJSON?.message ?? 'Server error. Could not delete receipt.';
+                alert(msg);
+                btn.prop('disabled', false).html('<i class="fas fa-trash"></i>');
+            }
+        });
+    });
+
+    // ── Initial calculation ────────────────────────────────────────
     calcTotal();
 });
 
+/* ── Receipt total recalculation ─────────────────────────────────── */
+function recalcReceipts() {
+    let total = 0;
+    $('.receipt-amount').each(function () {
+        total += parseFloat($(this).val()) || 0;
+    });
+
+    const fmt = total.toLocaleString(undefined, { minimumFractionDigits: 2 });
+    $('#receiptTableTotal').text('PKR ' + fmt);
+    $('#totalReceivedText').text(fmt);
+
+    // Recalc balance
+    const net     = parseFloat($('#netAmountInput').val()) || 0;
+    const balance = net - total;
+    $('#balanceAmountText').text(balance.toLocaleString(undefined, { minimumFractionDigits: 2 }));
+}
+
+/* ── Main total calculation ──────────────────────────────────────── */
+function calcTotal() {
+    let subTotal = 0;
+    $('.row-total').each(function () { subTotal += parseFloat($(this).val()) || 0; });
+
+    const discount  = parseFloat($('#discountInput').val()) || 0;
+    const netAmount = Math.max(0, subTotal - discount);
+
+    $('#netAmountText').text(netAmount.toLocaleString(undefined, { minimumFractionDigits: 2 }));
+    $('#netAmountInput').val(netAmount.toFixed(2));
+
+    recalcReceipts(); // handles balance using receipt amounts
+}
+
+/* ── Row helpers ─────────────────────────────────────────────────── */
 function initRow(row) {
     row.find('.product-select').select2({ width: '100%' });
     reinitCustomizationSelect(row);
@@ -259,7 +423,7 @@ function updateStockBadge(row) {
 
     if (!row.find('.product-select').val()) { badge.html(''); return; }
 
-    let color = stock > 5 ? 'success' : (stock > 0 ? 'warning' : 'danger');
+    const color = stock > 5 ? 'success' : (stock > 0 ? 'warning' : 'danger');
     badge.html(`<span class="badge bg-${color}">Stock: ${stock}</span>`);
 }
 
@@ -329,20 +493,6 @@ function calcRowTotal(row) {
     const qty   = parseFloat(row.find('.quantity').val())   || 0;
     row.find('.row-total').val((price * qty).toFixed(2));
     calcTotal();
-}
-
-function calcTotal() {
-    let subTotal = 0;
-    $('.row-total').each(function () { subTotal += parseFloat($(this).val()) || 0; });
-
-    const discount    = parseFloat($('#discountInput').val()) || 0;
-    const netAmount   = Math.max(0, subTotal - discount);
-    const alreadyPaid = parseFloat($('#amountReceivedHidden').val()) || 0;
-    const balance     = netAmount - alreadyPaid;
-
-    $('#netAmountText').text(netAmount.toLocaleString(undefined, { minimumFractionDigits: 2 }));
-    $('#netAmountInput').val(netAmount.toFixed(2));
-    $('#balanceAmountText').text(balance.toLocaleString(undefined, { minimumFractionDigits: 2 }));
 }
 </script>
 @endsection
