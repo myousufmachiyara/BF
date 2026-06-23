@@ -416,19 +416,6 @@ class SaleInvoiceController extends Controller
                 ]);
             }
 
-            // ── Optional new payment receipt ──────────────────────────
-            if ($request->filled('payment_account_id') && $request->amount_received > 0) {
-                Voucher::create([
-                    'voucher_type' => 'receipt',
-                    'date'         => $validated['date'],
-                    'ac_dr_sid'    => $validated['payment_account_id'],
-                    'ac_cr_sid'    => $validated['account_id'],
-                    'amount'       => $validated['amount_received'],
-                    'remarks'      => "Payment received for Invoice #{$invoiceNo}",
-                    'reference'    => $invoice->id,
-                ]);
-            }
-
             // ── Update existing receipt vouchers ─────────────────────────
             if (!empty($request->existing_receipts)) {
                 $this->updateExistingReceipts(
