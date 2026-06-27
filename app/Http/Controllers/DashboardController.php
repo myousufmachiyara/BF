@@ -200,21 +200,31 @@ class DashboardController extends Controller
 
     private function netProfit(string $from, string $to): float
     {
-        // Revenue from sales revenue vouchers (credit side)
-        $revenue = (float) Voucher::whereNull('deleted_at')
-            ->where('voucher_type', 'journal')
-            ->whereHas('creditAccount', fn($q) => $q->where('account_type', 'revenue'))
+        // ── REVENUE: same logic as corrected P&L — direct from invoice items
+        // Avoids missing/wrong voucher problem
+        $revenue = (float) DB::table('sale_invoice_items')
+            ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
+            ->whereNull('sale_invoices.deleted_at')
+            ->whereBetween('sale_invoices.date', [$from, $to])
+            ->sum(DB::raw('sale_invoice_items.sale_price * sale_invoice_items.quantity'));
+
+        $discount = (float) DB::table('sale_invoices')
+            ->whereNull('deleted_at')
+            ->whereBetween('date', [$from, $to])
+            ->sum('discount');
+
+        $netRevenue = max(0, $revenue - $discount);
+
+        // ── COGS: from COGS vouchers (debit side)
+        $cogsAccountIds = ChartOfAccounts::whereIn('account_type', ['cogs', 'cost_of_sales'])
+            ->pluck('id');
+
+        $cogs = (float) Voucher::whereIn('ac_dr_sid', $cogsAccountIds)
+            ->whereNull('deleted_at')
             ->whereBetween('date', [$from, $to])
             ->sum('amount');
 
-        // COGS from cogs vouchers (debit side)
-        $cogs = (float) Voucher::whereNull('deleted_at')
-            ->where('voucher_type', 'journal')
-            ->whereHas('debitAccount', fn($q) => $q->where('account_type', 'cogs'))
-            ->whereBetween('date', [$from, $to])
-            ->sum('amount');
-
-        return $revenue - $cogs;
+        return $netRevenue - $cogs;
     }
 
     private function totalReceivables(string $asOf): float
