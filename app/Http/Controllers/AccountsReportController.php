@@ -12,7 +12,7 @@ class AccountsReportController extends Controller
 {
     public function accounts(Request $request)
     {
-        $from = $request->from_date ?? '2026-01-01'; // or dynamic financial year start
+        $from = $request->from_date ?? Carbon::now()->startOfMonth()->toDateString();
         $to   = $request->to_date   ?? Carbon::now()->toDateString();
         $chartOfAccounts = ChartOfAccounts::orderBy('name')->get();
         $accountId = $request->account_id;
@@ -219,33 +219,70 @@ class AccountsReportController extends Controller
     /* ================= PROFIT & LOSS ================= */
     private function profitLoss($from, $to)
     {
-        $mapAccounts = function ($accounts, $isDebit) use ($from, $to) {
-            return collect($accounts)->map(function ($a) use ($from, $to, $isDebit) {
-                // For P&L, only activity within the period (not opening balances)
+        // ── REVENUE: sum directly from sale_invoice_items (same as Sales Register)
+        // This avoids the missing/wrong voucher problem entirely for revenue
+        $revenueFromInvoices = (float) DB::table('sale_invoice_items')
+            ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
+            ->whereNull('sale_invoices.deleted_at')
+            ->whereBetween('sale_invoices.date', [$from, $to])
+            ->sum(DB::raw('sale_invoice_items.sale_price * sale_invoice_items.quantity'));
+
+        $totalDiscount = (float) DB::table('sale_invoices')
+            ->whereNull('deleted_at')
+            ->whereBetween('date', [$from, $to])
+            ->sum('discount');
+
+        $totalRevenue = max(0, $revenueFromInvoices - $totalDiscount);
+
+        // ── COGS: sum from vouchers (debit to COGS account)
+        $cogsAccounts = ChartOfAccounts::whereIn('account_type', ['cogs', 'cost_of_sales'])->get();
+        $cogs = $cogsAccounts->map(function ($a) use ($from, $to) {
+            $vDr = (float) Voucher::where('ac_dr_sid', $a->id)
+                                ->whereBetween('date', [$from, $to])
+                                ->sum('amount');
+            $vCr = (float) Voucher::where('ac_cr_sid', $a->id)
+                                ->whereBetween('date', [$from, $to])
+                                ->sum('amount');
+            return [$a->name, $vDr - $vCr];
+        })->filter(fn($r) => $r[1] != 0);
+
+        // ── EXPENSES: sum from vouchers
+        $expenses = ChartOfAccounts::whereIn('account_type', ['expenses', 'expense'])
+            ->get()
+            ->map(function ($a) use ($from, $to) {
                 $vDr = (float) Voucher::where('ac_dr_sid', $a->id)
-                                      ->whereBetween('date', [$from, $to])
-                                      ->sum('amount');
+                                    ->whereBetween('date', [$from, $to])
+                                    ->sum('amount');
                 $vCr = (float) Voucher::where('ac_cr_sid', $a->id)
-                                      ->whereBetween('date', [$from, $to])
-                                      ->sum('amount');
-                $val = $isDebit ? ($vDr - $vCr) : ($vCr - $vDr);
-                return [$a->name, $val];
+                                    ->whereBetween('date', [$from, $to])
+                                    ->sum('amount');
+                return [$a->name, $vDr - $vCr];
             })->filter(fn($r) => $r[1] != 0);
-        };
 
-        $revenue  = $mapAccounts(ChartOfAccounts::where('account_type', 'revenue')->get(), false);
-        $cogs     = $mapAccounts(ChartOfAccounts::whereIn('account_type', ['cogs', 'cost_of_sales'])->get(), true);
-        $expenses = $mapAccounts(ChartOfAccounts::whereIn('account_type', ['expenses', 'expense'])->get(), true);
-
-        $totalRev    = $revenue->sum(fn($r) => $r[1]);
         $totalCogs   = $cogs->sum(fn($r) => $r[1]);
-        $grossProfit = $totalRev - $totalCogs;
+        $grossProfit = $totalRevenue - $totalCogs;
         $totalExp    = $expenses->sum(fn($r) => $r[1]);
         $netProfit   = $grossProfit - $totalExp;
 
+        // ── Build the flat collection for the Blade view
+        $revenueAccounts = ChartOfAccounts::where('account_type', 'revenue')->get();
+        $revenueRows = collect([['Sales Revenue', $totalRevenue]]);
+
+        // If you have multiple revenue accounts, break them down properly
+        if ($revenueAccounts->count() > 1) {
+            $revenueRows = $revenueAccounts->map(function ($a) use ($from, $to) {
+                $rev = (float) DB::table('sale_invoice_items')
+                    ->join('sale_invoices', 'sale_invoice_items.sale_invoice_id', '=', 'sale_invoices.id')
+                    ->whereNull('sale_invoices.deleted_at')
+                    ->whereBetween('sale_invoices.date', [$from, $to])
+                    ->sum(DB::raw('sale_invoice_items.sale_price * sale_invoice_items.quantity'));
+                return [$a->name, $rev];
+            })->filter(fn($r) => $r[1] != 0);
+        }
+
         return collect([['REVENUE', '']])
-            ->concat($revenue)
-            ->push(['Total Revenue', $totalRev])
+            ->concat($revenueRows)
+            ->push(['Total Revenue', $totalRevenue])
             ->push(['LESS: COST OF GOODS SOLD', ''])
             ->concat($cogs)
             ->push(['GROSS PROFIT', $grossProfit])
