@@ -55,6 +55,10 @@ Route::middleware(['auth'])->group(function () {
         ->middleware('check.permission:sale_invoices.delete')
         ->name('sale_invoices.delete_receipt');
 
+    Route::get('sale-invoices/audit-vouchers', [SaleInvoiceController::class, 'auditVouchers'])
+    ->middleware('check.permission:sale_invoices.index')
+    ->name('sale_invoices.audit_vouchers');
+
     
     // Common Modules
     $modules = [

@@ -144,6 +144,7 @@ class SaleInvoiceController extends Controller
     }
 
     /* ================= STORE ================= */
+    /* ================= STORE ================= */
     public function store(Request $request)
     {
         Log::info('[SaleInvoice][Store] Request received', [
@@ -170,11 +171,32 @@ class SaleInvoiceController extends Controller
         DB::beginTransaction();
         try {
             // ── Invoice number ──────────────────────────────────────────
-            $lastInvoice = SaleInvoice::withTrashed()->orderBy('id', 'desc')->first();
-            $invoiceNo   = str_pad(
+            // Lock the last invoice row to prevent race conditions
+            $lastInvoice = SaleInvoice::withTrashed()
+                ->lockForUpdate()
+                ->orderBy('id', 'desc')
+                ->first();
+
+            $invoiceNo = str_pad(
                 $lastInvoice ? intval($lastInvoice->invoice_no) + 1 : 1,
                 6, '0', STR_PAD_LEFT
             );
+            Log::info('[SaleInvoice][Store] Invoice number generated', ['invoice_no' => $invoiceNo]);
+
+            // ── Look up system accounts FIRST ───────────────────────────
+            $salesAccount     = ChartOfAccounts::withTrashed()->where('account_type', 'revenue')->first();
+            $inventoryAccount = ChartOfAccounts::withTrashed()->where('name', 'Stock in Hand')->first();
+            $cogsAccount      = ChartOfAccounts::withTrashed()->where('account_type', 'cogs')->first();
+
+            if (!$salesAccount) {
+                throw new \Exception('Sales Revenue account (account_type=revenue) not found in COA.');
+            }
+
+            Log::info('[SaleInvoice][Store] System accounts resolved', [
+                'sales_account_id'     => $salesAccount->id,
+                'inventory_account_id' => $inventoryAccount?->id,
+                'cogs_account_id'      => $cogsAccount?->id,
+            ]);
 
             // ── Create header ───────────────────────────────────────────
             $invoice = SaleInvoice::create([
@@ -186,9 +208,11 @@ class SaleInvoiceController extends Controller
                 'remarks'    => $validated['remarks'] ?? null,
                 'created_by' => Auth::id(),
             ]);
+            Log::info('[SaleInvoice][Store] Invoice header created', ['invoice_id' => $invoice->id]);
 
             // ── Create items + customizations ───────────────────────────
             $totalBill = 0;
+            $totalCost = 0;
 
             foreach ($validated['items'] as $idx => $item) {
                 $invoiceItem = SaleInvoiceItem::create([
@@ -200,27 +224,37 @@ class SaleInvoiceController extends Controller
 
                 $totalBill += $item['sale_price'] * $item['quantity'];
 
+                // Calculate cost for this item
+                $unitCost = $this->calcLandedCost($item['product_id']);
+
                 foreach ($item['customizations'] ?? [] as $customItemId) {
                     SaleItemCustomization::create([
                         'sale_invoice_id'       => $invoice->id,
                         'sale_invoice_items_id' => $invoiceItem->id,
                         'item_id'               => $customItemId,
                     ]);
+                    $unitCost += $this->calcLandedCost($customItemId);
                 }
+
+                $totalCost += $unitCost * $item['quantity'];
+
+                Log::info("[SaleInvoice][Store] Item #{$idx} processed", [
+                    'product_id' => $item['product_id'],
+                    'quantity'   => $item['quantity'],
+                    'unit_cost'  => $unitCost,
+                    'line_cost'  => $unitCost * $item['quantity'],
+                ]);
             }
 
-            $netTotal = $totalBill - ($validated['discount'] ?? 0);
+            $netTotal = max(0, $totalBill - ($validated['discount'] ?? 0));
+            Log::info('[SaleInvoice][Store] Totals calculated', [
+                'total_bill' => $totalBill,
+                'net_total'  => $netTotal,
+                'total_cost' => $totalCost,
+            ]);
 
             // ── Sales Revenue voucher ───────────────────────────────────
-            $salesAccount = ChartOfAccounts::withTrashed()
-                ->where('account_type', 'revenue')
-                ->first();
-
-            if (!$salesAccount) {
-                throw new \Exception('Sales Revenue account not found in COA.');
-            }
-
-            Voucher::create([
+            $salesVoucher = Voucher::create([
                 'voucher_type' => 'journal',
                 'date'         => $validated['date'],
                 'ac_dr_sid'    => $validated['account_id'],
@@ -230,9 +264,14 @@ class SaleInvoiceController extends Controller
                 'reference'    => $invoice->id,
             ]);
 
+            if (!$salesVoucher || !$salesVoucher->id) {
+                throw new \Exception("Sales revenue voucher failed to create for Invoice #{$invoiceNo}.");
+            }
+            Log::info('[SaleInvoice][Store] Sales revenue voucher created', ['voucher_id' => $salesVoucher->id]);
+
             // ── Payment receipt voucher ─────────────────────────────────
             if ($request->filled('payment_account_id') && $request->amount_received > 0) {
-                Voucher::create([
+                $receiptVoucher = Voucher::create([
                     'voucher_type' => 'receipt',
                     'date'         => $validated['date'],
                     'ac_dr_sid'    => $validated['payment_account_id'],
@@ -241,26 +280,69 @@ class SaleInvoiceController extends Controller
                     'remarks'      => "Payment received for Invoice #{$invoiceNo}",
                     'reference'    => $invoice->id,
                 ]);
+
+                if (!$receiptVoucher || !$receiptVoucher->id) {
+                    throw new \Exception("Payment receipt voucher failed to create for Invoice #{$invoiceNo}.");
+                }
+                Log::info('[SaleInvoice][Store] Payment receipt voucher created', ['voucher_id' => $receiptVoucher->id]);
             }
 
             // ── COGS voucher ────────────────────────────────────────────
-            $this->recordCogsVoucher(
-                $validated['items'],
-                $validated['date'],
-                $invoiceNo,
-                $invoice->id
-            );
+            if ($inventoryAccount && $cogsAccount && $totalCost > 0) {
+                $cogsVoucher = Voucher::create([
+                    'voucher_type' => 'journal',
+                    'date'         => $validated['date'],
+                    'ac_dr_sid'    => $cogsAccount->id,
+                    'ac_cr_sid'    => $inventoryAccount->id,
+                    'amount'       => $totalCost,
+                    'remarks'      => "COGS (Landed Cost) for Invoice #{$invoiceNo}",
+                    'reference'    => $invoice->id,
+                ]);
+
+                if (!$cogsVoucher || !$cogsVoucher->id) {
+                    throw new \Exception("COGS voucher failed to create for Invoice #{$invoiceNo}.");
+                }
+                Log::info('[SaleInvoice][Store] COGS voucher created', [
+                    'voucher_id' => $cogsVoucher->id,
+                    'total_cost' => $totalCost,
+                ]);
+            } else {
+                Log::warning('[SaleInvoice][Store] COGS voucher SKIPPED', [
+                    'inventory_account_found' => (bool) $inventoryAccount,
+                    'cogs_account_found'      => (bool) $cogsAccount,
+                    'total_cost'              => $totalCost,
+                    'invoice_no'              => $invoiceNo,
+                ]);
+            }
+
+            // ── Verify all critical vouchers exist before committing ────
+            $journalVoucherCount = Voucher::where('reference', $invoice->id)
+                ->where('voucher_type', 'journal')
+                ->count();
+
+            if ($journalVoucherCount === 0) {
+                throw new \Exception("Post-creation check failed: no journal vouchers found for Invoice #{$invoiceNo}.");
+            }
 
             DB::commit();
+            Log::info('[SaleInvoice][Store] Transaction committed successfully', [
+                'invoice_id'            => $invoice->id,
+                'invoice_no'            => $invoiceNo,
+                'journal_voucher_count' => $journalVoucherCount,
+            ]);
+
             return redirect()->route('sale_invoices.index')
-                ->with('success', 'Sale Invoice saved successfully.');
+                ->with('success', "Sale Invoice #{$invoiceNo} saved successfully.");
 
         } catch (\Throwable $e) {
             DB::rollBack();
-            Log::error('[SaleInvoice][Store] ROLLED BACK', [
-                'error' => $e->getMessage(),
-                'line'  => $e->getLine(),
-                'file'  => $e->getFile(),
+            Log::error('[SaleInvoice][Store] TRANSACTION ROLLED BACK', [
+                'error'   => $e->getMessage(),
+                'line'    => $e->getLine(),
+                'file'    => $e->getFile(),
+                'trace'   => $e->getTraceAsString(),
+                'user_id' => Auth::id(),
+                'input'   => $request->except(['_token']),
             ]);
             return back()->withInput()->with('error', 'Error saving invoice: ' . $e->getMessage());
         }
@@ -780,6 +862,53 @@ class SaleInvoiceController extends Controller
             'succeeded' => $succeeded,
             'failed'    => count($failed),
             'errors'    => $failed,
+        ]);
+    }
+
+    /* ================= AUDIT MISSING VOUCHERS ================= */
+    public function auditVouchers()
+    {
+        if (!auth()->user()->hasRole('superadmin')) {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        $invoices = SaleInvoice::with(['account', 'items'])
+            ->whereNull('deleted_at')
+            ->orderBy('id', 'desc')
+            ->get();
+
+        $missing = [];
+
+        foreach ($invoices as $inv) {
+            $journalCount = Voucher::where('reference', $inv->id)
+                ->where('voucher_type', 'journal')
+                ->whereNull('deleted_at')
+                ->count();
+
+            if ($journalCount === 0) {
+                $itemTotal = $inv->items->sum(fn($i) => $i->sale_price * $i->quantity);
+                $netTotal  = max(0, $itemTotal - ($inv->discount ?? 0));
+
+                $receiptTotal = Voucher::where('reference', $inv->id)
+                    ->where('voucher_type', 'receipt')
+                    ->whereNull('deleted_at')
+                    ->sum('amount');
+
+                $missing[] = [
+                    'id'            => $inv->id,
+                    'invoice_no'    => $inv->invoice_no,
+                    'date'          => $inv->date,
+                    'customer'      => $inv->account->name ?? '—',
+                    'net_total'     => $netTotal,
+                    'receipt_total' => $receiptTotal,
+                ];
+            }
+        }
+
+        return response()->json([
+            'total_invoices'   => $invoices->count(),
+            'missing_count'    => count($missing),
+            'invoices'         => $missing,
         ]);
     }
 
